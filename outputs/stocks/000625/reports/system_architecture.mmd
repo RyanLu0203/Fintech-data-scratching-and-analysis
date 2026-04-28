@@ -1,0 +1,12 @@
+flowchart TD
+    A[Raw OHLCV + financial news] --> B[Data ingestion]
+    B --> C[CSV artifacts / optional SQLite]
+    C --> D[NLP sentiment pipeline]
+    D --> E[Daily sentiment signal]
+    C --> F[Technical indicators]
+    E --> G[RL state vector]
+    F --> G
+    G --> H[DQN trading engine]
+    H --> I[Trading logs + portfolio curve]
+    I --> J[Evaluation and ablation]
+    J --> K[Notebook report + Streamlit dashboard]

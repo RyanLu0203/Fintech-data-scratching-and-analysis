@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="420" viewBox="0 0 840 420">
+<rect width="840" height="420" fill="white"/>
+<text x="30" y="30" font-size="20" font-family="Arial, sans-serif">Risk vs Return</text>
+<line x1="40" y1="350" x2="800" y2="350" stroke="#d1d5db"/>
+<line x1="40" y1="50" x2="40" y2="350" stroke="#d1d5db"/>
+<circle cx="760.0" cy="340.0" r="7" fill="#2563eb" />
+<text x="770.0" y="344.0" font-size="12">buy_and_hold</text>
+<circle cx="60.0" cy="80.0" r="7" fill="#16a34a" />
+<text x="70.0" y="84.0" font-size="12">dqn_without_nlp</text>
+<circle cx="60.0" cy="80.0" r="7" fill="#dc2626" />
+<text x="70.0" y="84.0" font-size="12">dqn_with_nlp</text>
+<text x="360" y="390" font-size="12">x = annualized volatility, y = annualized return</text>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="420" viewBox="0 0 840 420">
+<rect width="840" height="420" fill="white"/>
+<text x="30" y="30" font-size="20" font-family="Arial, sans-serif">Action Distribution</text>
+<line x1="40" y1="350" x2="800" y2="350" stroke="#d1d5db"/>
+<line x1="40" y1="50" x2="40" y2="350" stroke="#d1d5db"/>
+<rect x="60.0" y="60.0" width="476.0" height="280.0" fill="#2563eb" />
+<text x="60.0" y="365" font-size="12">Hold</text>
+</svg>

@@ -1,0 +1,13 @@
+﻿metric,value,description
+market_rows,316.0,Number of trading rows used.
+close_cumulative_return,-0.25009373828271475,Raw close-price return over the sample.
+sentiment_coverage,1.0,Share of market days with a sentiment value.
+average_sentiment,-0.003975881430840088,Average daily sentiment score.
+positive_sentiment_day_ratio,0.439873417721519,Share of days with positive sentiment.
+negative_sentiment_day_ratio,0.39556962025316456,Share of days with negative sentiment.
+sentiment_next_day_return_corr,-0.02068502170832149,Correlation between today's sentiment and next trading day's return.
+average_net_flow,-83600079.68253605,Average reported or estimated daily net flow.
+inflow_day_ratio,0.43354430379746833,Share of days with estimated net inflow.
+outflow_day_ratio,0.560126582278481,Share of days with estimated net outflow.
+net_flow_same_day_return_corr,0.5937807988855998,Correlation between net flow and same-day return.
+net_flow_next_day_return_corr,0.08927191602531323,Correlation between today's net flow and next trading day's return.

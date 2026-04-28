@@ -1,0 +1,2 @@
+episode,total_reward,epsilon,experiment
+1,-27649.94735999976,0.21355457002808648,dqn_without_nlp

@@ -1,0 +1,52 @@
+{
+  "symbol": "000625",
+  "years": 2.0,
+  "start_date": "2024-12-30",
+  "end_date": "2026-04-22",
+  "news_count": 5000,
+  "company_name": "长安汽车",
+  "require_news": true,
+  "sources": [
+    "tencent"
+  ],
+  "final_output": "/Users/luxinyu/Desktop/Fintech/fintechgp/result/000625_finance_text_2024-12-30_2026-04-22.csv",
+  "attempts": [
+    {
+      "source": "tencent",
+      "command": [
+        "/Users/luxinyu/Desktop/Fintech/fintechgp/.venv/bin/python",
+        "/Users/luxinyu/Desktop/Fintech/fintechgp/program/finance_text_scraper.py",
+        "000625",
+        "-o",
+        "/Users/luxinyu/Desktop/Fintech/fintechgp/data/integrated/000625_tencent_20260428_195344.csv",
+        "--source",
+        "tencent",
+        "--years",
+        "2.0",
+        "--news-count",
+        "5000",
+        "--retries",
+        "3",
+        "--pause",
+        "0.8",
+        "--start-date",
+        "2024-12-30",
+        "--end-date",
+        "2026-04-22",
+        "--company-name",
+        "长安汽车",
+        "--require-news"
+      ],
+      "started_at": "2026-04-28T19:53:44",
+      "ended_at": "2026-04-28T19:55:15",
+      "returncode": 0,
+      "stdout": "Normalized China A-share symbol: 000625 -> 000625.SZ\n[1/4] Fetching daily price data for 000625.SZ from 2024-12-30 to 2026-04-22...\n[2/4] Fetching latest quote/basic stock metadata...\n[3/4] Fetching up to 5000 Eastmoney news and announcement/event items...\nSearch keywords: 000625, 000625.SZ, sz000625, 长安汽车\nSome trading days have no stock-specific text events; fetching market-wide news fallback...\nSome trading days still have no external text events; adding transparent daily OHLCV text summaries...\n[4/4] Combining daily data and writing CSV...\nDone: wrote 479 daily rows to /Users/luxinyu/Desktop/Fintech/fintechgp/data/integrated/000625_tencent_20260428_195344.csv\ntencent returned 4572 news/event items across 372 dates.\n",
+      "stderr": "",
+      "output_csv": "/Users/luxinyu/Desktop/Fintech/fintechgp/data/integrated/000625_tencent_20260428_195344.csv",
+      "output_exists": true,
+      "error_reason": ""
+    }
+  ],
+  "success": true,
+  "successful_source": "tencent"
+}

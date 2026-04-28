@@ -1,0 +1,4 @@
+﻿experiment,final_portfolio_value,final_equity,cumulative_return,annualized_return,annualized_volatility,sharpe_ratio,sortino_ratio,calmar_ratio,max_drawdown,value_at_risk_95,avg_daily_return,best_day_return,worst_day_return,win_rate,number_of_trades,trade_frequency,exposure_ratio,avg_reward,profit_factor
+buy_and_hold,74990.62617172852,74990.62617172852,-0.25009373828271475,-0.2056615520653109,0.216044837496026,-0.9561601019104868,-1.1898554140889843,-0.7323880496328381,-0.28080954101915434,-0.019488769195545392,-0.0008197359279263285,0.04850322091701398,-0.10291184682887933,0.0,1,0.0031645569620253164,1.0,0.0,0.0
+dqn_without_nlp,100000.0,100000.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0,0.0,0.0,0.0,0.0
+dqn_with_nlp,100000.0,100000.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0,0.0,0.0,0.0,0.0

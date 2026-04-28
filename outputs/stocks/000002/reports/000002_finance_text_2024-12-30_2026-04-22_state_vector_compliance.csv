@@ -1,0 +1,9 @@
+﻿state_column,present
+price,True
+MA50,True
+MA200,True
+RSI,True
+MACD,True
+position,True
+cash,True
+sentiment_score,True

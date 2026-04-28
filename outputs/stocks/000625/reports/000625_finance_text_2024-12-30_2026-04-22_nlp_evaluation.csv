@@ -1,0 +1,5 @@
+﻿method,status,accuracy,precision,recall,f1,error
+lexicon,baseline,0.0,0.0,0.0,0.0,
+logistic_tfidf,pseudo_label_eval,0.0,0.0,0.0,0.0,
+finbert,skipped,0.0,0.0,0.0,0.0,"We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'."
