@@ -1,0 +1,36 @@
+# Core data stack
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+
+# Data ingestion
+yfinance>=0.2.40
+feedparser>=6.0.11
+requests>=2.31.0
+python-dotenv>=1.0.1
+APScheduler>=3.10.4
+
+# NLP and FinBERT
+transformers>=4.41.0
+torch>=2.2.0
+sentencepiece>=0.2.0
+
+# Storage
+SQLAlchemy>=2.0.30
+psycopg2-binary>=2.9.9
+
+# RL, evaluation, visualization
+matplotlib>=3.8.0
+plotly>=5.22.0
+streamlit>=1.35.0
+
+# Notebook report workflow
+notebook>=7.2.0
+ipykernel>=6.29.0
+ipython>=8.18.0
+ipywidgets>=8.1.0
+
+# Testing and quality
+pytest>=8.2.0
+pytest-cov>=5.0.0
+ruff>=0.4.0

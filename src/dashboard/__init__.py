@@ -1,0 +1,2 @@
+"""Streamlit frontend dashboard module."""
+
