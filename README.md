@@ -9,7 +9,7 @@ raw financial news + OHLCV market data
 -> evaluation, dashboard, and report artifacts
 ```
 
-当前正式实验版本是：
+本仓库实现的实验是：
 
 ```text
 Peer NLP Transfer Trading Experiment
@@ -23,16 +23,14 @@ Peer NLP Transfer Trading Experiment
 是否能提升目标股票 DQN 交易模型的测试期表现？
 ```
 
-项目保留旧的 peer-sentiment baseline，同时新增 market-impact NLP：
+实验包含两个 peer-trained NLP 信号：
 
 ```text
-Experiment A: peer_sector_sentiment_nlp
-Experiment B: peer_market_impact_nlp
+Experiment A: sector peer sentiment NLP
+Experiment B: sector peer market-impact NLP
 ```
 
-旧的 stock-level NLP 实验不再作为正式结果。它只作为 legacy robustness output 保留，dashboard 和报告默认不使用它作为主结论。
-
-## Latest Experimental Logic
+## Experimental Logic
 
 以目标股票 `A` 为例，例如：
 
@@ -89,6 +87,8 @@ transfer to held-out target stock
 ```
 
 ## End-To-End Workflow
+
+![Experiment workflow](docs/experiment_workflow.svg)
 
 完整流程如下：
 
@@ -755,22 +755,16 @@ pip install -r requirements.txt
 
 ## Run Dashboard
 
-新的正式 dashboard：
+Dashboard 入口：
 
 ```bash
 .venv/bin/streamlit run src/dashboard/peer_nlp_dashboard.py
 ```
 
-或通过 CLI：
+或启动 peer dashboard CLI：
 
 ```bash
-.venv/bin/python main.py --mode dashboard
-```
-
-如果 `main.py --mode dashboard` 指向旧 dashboard，请直接使用第一条命令运行：
-
-```bash
-.venv/bin/streamlit run src/dashboard/peer_nlp_dashboard.py
+.venv/bin/python main.py --peer-dashboard
 ```
 
 Dashboard 左侧输入：
@@ -922,7 +916,7 @@ src/rl/train.py
     DQN train and evaluate utilities
 
 src/dashboard/peer_nlp_dashboard.py
-    latest clean dashboard
+    peer NLP and market-impact dashboard
 ```
 
 ## Reliability Checks
@@ -940,7 +934,6 @@ lagged state features
 same-day leakage
 DQN trade count
 flat portfolio curves
-legacy result contamination
 ```
 
 如果条件不足，结果会标记为：
@@ -959,21 +952,3 @@ NOT_READY
 4. 如果 marketwide impact labelled news 不足，marketwide impact group 会被跳过。
 5. DQN 结果受随机种子、交易成本、训练 episode、市场状态影响，需要多 seed 聚合解释。
 6. NLP signal 改善 DQN 并不保证稳定发生，可能取决于板块、市场 regime、新闻覆盖率和 signal quality。
-
-## Final Research Interpretation
-
-本项目不强行假设 NLP 一定提升交易表现。最终结论应回答：
-
-```text
-1. Sector peer sentiment NLP 是否提升 DQN?
-2. Sector peer market-impact NLP 是否提升 DQN?
-3. Market-impact NLP 是否比 pure sentiment NLP 更贴近交易目标?
-4. NLP 效果是否依赖板块和新闻覆盖率?
-5. DQN 是否因为 NLP signal 改变了交易行为?
-```
-
-推荐答辩表述：
-
-```text
-The experiment holds out the target stock from NLP training and uses peer-stock news to build transferable NLP signals. Sentiment NLP measures textual tone, while market-impact NLP learns peer market reactions from future-return pseudo labels. These signals are added to a unified DQN state and evaluated under the same train/test window and reward function. The result tests whether peer-trained NLP provides incremental trading value beyond market-only technical features.
-```

@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="640" viewBox="0 0 1180 640" role="img" aria-labelledby="title desc">
+  <title id="title">Peer NLP Transfer Trading Experiment Workflow</title>
+  <desc id="desc">Workflow from target stock input through data collection, peer NLP training, DQN trading evaluation, and dashboard reporting.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { font: 700 28px Arial, Helvetica, sans-serif; fill: #111827; }
+      .subtitle { font: 400 15px Arial, Helvetica, sans-serif; fill: #4b5563; }
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; rx: 12; }
+      .box-blue { fill: #eff6ff; stroke: #60a5fa; }
+      .box-green { fill: #ecfdf5; stroke: #34d399; }
+      .box-orange { fill: #fff7ed; stroke: #fb923c; }
+      .box-purple { fill: #f5f3ff; stroke: #a78bfa; }
+      .box-gray { fill: #f1f5f9; stroke: #94a3b8; }
+      .label { font: 700 16px Arial, Helvetica, sans-serif; fill: #111827; }
+      .text { font: 400 13px Arial, Helvetica, sans-serif; fill: #374151; }
+      .small { font: 400 12px Arial, Helvetica, sans-serif; fill: #475569; }
+      .arrow { stroke: #64748b; stroke-width: 2.2; fill: none; marker-end: url(#arrowhead); }
+      .dash { stroke-dasharray: 6 5; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#64748b" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1180" height="640" />
+  <text class="title" x="48" y="52">Peer NLP Transfer Trading Experiment</text>
+  <text class="subtitle" x="48" y="78">Held-out target stock, peer-trained NLP signals, unified DQN state, and comparable holdout evaluation.</text>
+
+  <rect class="box box-blue" x="48" y="120" width="190" height="90" />
+  <text class="label" x="68" y="150">1. Target Stock</text>
+  <text class="text" x="68" y="174">Input A-share symbol</text>
+  <text class="text" x="68" y="194">Resolve company and sector</text>
+
+  <rect class="box box-blue" x="290" y="120" width="210" height="90" />
+  <text class="label" x="310" y="150">2. Target Data</text>
+  <text class="text" x="310" y="174">OHLCV market series</text>
+  <text class="text" x="310" y="194">Target news / announcements</text>
+
+  <rect class="box box-green" x="552" y="120" width="230" height="90" />
+  <text class="label" x="572" y="150">3. Peer Universe</text>
+  <text class="text" x="572" y="174">Same-sector peer stocks</text>
+  <text class="text" x="572" y="194">Target excluded from training</text>
+
+  <rect class="box box-green" x="834" y="120" width="260" height="90" />
+  <text class="label" x="854" y="150">4. Peer Corpora</text>
+  <text class="text" x="854" y="174">Peer news text corpus</text>
+  <text class="text" x="854" y="194">Peer future-return pseudo labels</text>
+
+  <path class="arrow" d="M238 165 H290" />
+  <path class="arrow" d="M500 165 H552" />
+  <path class="arrow" d="M782 165 H834" />
+
+  <rect class="box box-orange" x="170" y="285" width="260" height="104" />
+  <text class="label" x="190" y="315">5A. Sentiment NLP</text>
+  <text class="text" x="190" y="339">Train on peer text tone</text>
+  <text class="text" x="190" y="359">Score target news by date</text>
+  <text class="small" x="190" y="379">Signal: sector_sentiment_score</text>
+
+  <rect class="box box-orange" x="482" y="285" width="282" height="104" />
+  <text class="label" x="502" y="315">5B. Market-Impact NLP</text>
+  <text class="text" x="502" y="339">Train on peer future-return labels</text>
+  <text class="text" x="502" y="359">Score expected market reaction</text>
+  <text class="small" x="502" y="379">Signal: sector_impact_score</text>
+
+  <rect class="box box-purple" x="816" y="285" width="230" height="104" />
+  <text class="label" x="836" y="315">6. Daily Signals</text>
+  <text class="text" x="836" y="339">Aggregate target scores</text>
+  <text class="text" x="836" y="359">Lag NLP features by one day</text>
+  <text class="small" x="836" y="379">No same-day leakage</text>
+
+  <path class="arrow" d="M949 210 C890 250, 760 270, 650 285" />
+  <path class="arrow" d="M949 210 C760 250, 425 265, 300 285" />
+  <path class="arrow" d="M430 337 H482" />
+  <path class="arrow" d="M764 337 H816" />
+
+  <rect class="box box-purple" x="120" y="468" width="246" height="94" />
+  <text class="label" x="140" y="498">7. DQN Control</text>
+  <text class="text" x="140" y="522">Market features only</text>
+  <text class="small" x="140" y="542">dqn_without_nlp</text>
+
+  <rect class="box box-purple" x="414" y="468" width="272" height="94" />
+  <text class="label" x="434" y="498">8. DQN NLP Groups</text>
+  <text class="text" x="434" y="522">Same architecture and split</text>
+  <text class="small" x="434" y="542">sentiment vs market-impact signal</text>
+
+  <rect class="box box-gray" x="734" y="468" width="306" height="94" />
+  <text class="label" x="754" y="498">9. Evaluation and Outputs</text>
+  <text class="text" x="754" y="522">Portfolio curves, metrics, diagnostics</text>
+  <text class="small" x="754" y="542">Dashboard, reports, downloadable CSV bundle</text>
+
+  <path class="arrow" d="M910 389 C885 430, 840 450, 790 468" />
+  <path class="arrow" d="M868 389 C700 420, 555 438, 550 468" />
+  <path class="arrow dash" d="M295 389 C270 420, 245 438, 243 468" />
+  <path class="arrow" d="M366 515 H414" />
+  <path class="arrow" d="M686 515 H734" />
+</svg>
