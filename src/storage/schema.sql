@@ -27,6 +27,29 @@ CREATE TABLE IF NOT EXISTS sentiment_table (
     PRIMARY KEY (ticker, date, method)
 );
 
+CREATE TABLE IF NOT EXISTS nlp_signal_table (
+    ticker TEXT NOT NULL,
+    date TEXT NOT NULL,
+    signal_name TEXT NOT NULL,
+    signal_value REAL,
+    method TEXT,
+    corpus_status TEXT,
+    target_news_count INTEGER,
+    missing_flag INTEGER,
+    source TEXT,
+    PRIMARY KEY (ticker, date, signal_name, source)
+);
+
+CREATE TABLE IF NOT EXISTS experiment_metrics_table (
+    ticker TEXT NOT NULL,
+    experiment TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
+    metric_value REAL,
+    metric_text TEXT,
+    metric_source TEXT NOT NULL,
+    PRIMARY KEY (ticker, experiment, metric_name, metric_source)
+);
+
 CREATE TABLE IF NOT EXISTS trading_log_table (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     episode INTEGER,
@@ -51,6 +74,10 @@ FROM market_table;
 CREATE VIEW IF NOT EXISTS sentiment_signals AS
 SELECT NULL AS id, ticker AS symbol, date, sentiment_score, method
 FROM sentiment_table;
+
+CREATE VIEW IF NOT EXISTS nlp_signals AS
+SELECT NULL AS id, ticker AS symbol, date, signal_name, signal_value, method, corpus_status, target_news_count, missing_flag, source
+FROM nlp_signal_table;
 
 CREATE VIEW IF NOT EXISTS trade_logs AS
 SELECT id, NULL AS symbol, date, action, NULL AS price, position, cash, portfolio_value

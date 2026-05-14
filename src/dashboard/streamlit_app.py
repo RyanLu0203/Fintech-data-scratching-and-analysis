@@ -2395,14 +2395,14 @@ run_high_density_ablation = False
 run_ingestion_flag = True
 reuse_existing_csv = True
 require_news = False
-use_sqlite = False
+use_sqlite = True
 cross_enabled = True
 run_cross_analysis = True
 run_cross_pipeline = True
 run_cross_existing_only = False
 run_cross_preflight_only = False
 supplement_sector_peers = True
-st.sidebar.caption("Fixed run options: target data cache is reused/updated automatically; same-sector peers are supplemented before the peer NLP experiment; SQLite and legacy stock-level NLP are disabled.")
+st.sidebar.caption("Fixed run options: target data cache is reused/updated automatically; same-sector peers are supplemented before the peer NLP experiment; SQLite persistence is enabled and legacy stock-level NLP is disabled.")
 
 target_sector_peers = same_sector_symbols(primary_symbol, include_target=False)
 cross_symbols_text = ", ".join(target_sector_peers)

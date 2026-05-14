@@ -37,7 +37,7 @@ from src.features.money_flow import compute_daily_net_flow
 from src.features.technical_indicators import add_trading_features
 from src.nlp.aggregate_sentiment import run_nlp_pipeline
 from src.reporting.artifacts import generate_report_artifacts
-from src.storage.database import initialize_database, save_sentiment_data, save_trading_logs
+from src.storage.database import initialize_database, save_experiment_metrics, save_nlp_signals, save_sentiment_data, save_trading_logs
 
 LOGGER = logging.getLogger(__name__)
 
@@ -380,6 +380,8 @@ def run_pipeline_for_symbol(
                     ),
                 }
             emit("peer_nlp", f"Saved official peer NLP outputs for {symbol}.")
+            if use_sqlite:
+                _persist_peer_outputs_to_sqlite(symbol, peer_outputs, sqlite_path)
         if run_market_impact_nlp:
             emit("market_impact_nlp", f"Running peer market-impact NLP experiment for {symbol}.")
             market_impact_outputs = run_market_impact_official_experiment(
@@ -400,6 +402,8 @@ def run_pipeline_for_symbol(
                 status_callback=status_callback,
             )
             emit("market_impact_nlp", f"Saved market-impact NLP outputs for {symbol}.")
+            if use_sqlite:
+                _persist_market_impact_outputs_to_sqlite(symbol, market_impact_outputs, sqlite_path)
         if run_legacy_stock_level_nlp or not run_peer_nlp_experiment:
             emit("legacy_nlp", f"Running deprecated stock-level NLP pipeline for {symbol} as legacy robustness output.")
             nlp_outputs = run_nlp_pipeline(
@@ -535,6 +539,40 @@ def run_pipeline_for_symbol(
     LOGGER.info("Pipeline completed for %s. Reports: %s Results: %s", symbol, reports_dir, results_dir)
     emit("done", f"Completed workflow for {symbol}.")
     return summary
+
+
+def _persist_peer_outputs_to_sqlite(symbol: str, peer_outputs: dict[str, object] | None, sqlite_path: Path) -> None:
+    """Persist official peer sentiment experiment outputs to SQLite."""
+
+    if not peer_outputs:
+        return
+    initialize_database(sqlite_path)
+    daily = peer_outputs.get("daily_sentiment")
+    if isinstance(daily, pd.DataFrame):
+        save_nlp_signals(daily, sqlite_path, source="peer_nlp_daily_sentiment")
+    logs = peer_outputs.get("peer_nlp_trading_logs")
+    if isinstance(logs, pd.DataFrame):
+        save_trading_logs(logs, sqlite_path)
+    metrics = peer_outputs.get("peer_nlp_metrics")
+    if isinstance(metrics, pd.DataFrame):
+        save_experiment_metrics(metrics, sqlite_path, ticker=symbol, source="peer_nlp_ablation_metrics")
+
+
+def _persist_market_impact_outputs_to_sqlite(symbol: str, market_impact_outputs: dict[str, object] | None, sqlite_path: Path) -> None:
+    """Persist official market-impact experiment outputs to SQLite."""
+
+    if not market_impact_outputs:
+        return
+    initialize_database(sqlite_path)
+    daily = market_impact_outputs.get("daily_signal")
+    if isinstance(daily, pd.DataFrame):
+        save_nlp_signals(daily, sqlite_path, source="peer_market_impact_daily_signal")
+    logs = market_impact_outputs.get("market_impact_trading_logs")
+    if isinstance(logs, pd.DataFrame):
+        save_trading_logs(logs, sqlite_path)
+    metrics = market_impact_outputs.get("market_impact_metrics")
+    if isinstance(metrics, pd.DataFrame):
+        save_experiment_metrics(metrics, sqlite_path, ticker=symbol, source="market_impact_ablation_metrics")
 
 
 def _apply_legacy_mode(args: argparse.Namespace) -> None:

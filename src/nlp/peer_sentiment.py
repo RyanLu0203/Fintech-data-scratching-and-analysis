@@ -361,7 +361,7 @@ def generate_peer_nlp_daily_sentiment(
         if column not in daily.columns:
             daily[column] = np.nan
         daily[column] = pd.to_numeric(daily[column], errors="coerce")
-        daily[f"{column.replace('_score', '')}_missing_flag"] = ((daily["target_news_available"] == 0) | (~ready) | daily[column].isna()).astype(int)
+        daily[f"{column.replace('_score', '')}_missing_flag"] = ((daily["target_news_available"] == 0) | (not ready) | daily[column].isna()).astype(int)
         daily[column] = daily[column].fillna(0.0).clip(-1, 1)
 
     daily["sector_news_count_used_for_training"] = int(sector_corpus.summary.get("total_news_count", 0))

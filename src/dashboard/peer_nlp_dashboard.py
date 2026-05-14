@@ -128,6 +128,7 @@ def main() -> None:
     run_ingestion = True
     reuse_cached = True
     allow_fetch = True
+    use_sqlite = True
     run_peer_sentiment = True
     run_market_impact = True
     run_dqn = True
@@ -166,6 +167,7 @@ def main() -> None:
                     "run_ablation_flag": bool(run_dqn),
                     "episodes": int(episodes),
                     "initial_cash": float(settings.default_initial_cash),
+                    "use_sqlite": bool(use_sqlite),
                     "reuse_existing_csv": bool(reuse_cached),
                     "require_news": False,
                     "build_cross_stock_outputs": True,

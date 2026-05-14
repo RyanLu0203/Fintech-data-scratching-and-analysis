@@ -8,7 +8,16 @@ from src.evaluation.cross_stock import build_cross_stock_summary
 from src.evaluation.information_density import detect_information_density_split
 from src.features.technical_indicators import STATE_COLUMNS, add_trading_features, leakage_diagnostics
 from src.nlp.aggregate_sentiment import run_nlp_pipeline
-from src.storage.database import initialize_database, load_table, save_market_data, save_news_data, save_sentiment_data, save_trading_logs
+from src.storage.database import (
+    initialize_database,
+    load_table,
+    save_experiment_metrics,
+    save_market_data,
+    save_news_data,
+    save_nlp_signals,
+    save_sentiment_data,
+    save_trading_logs,
+)
 
 
 def _tiny_market(symbol: str = "000001") -> pd.DataFrame:
@@ -96,10 +105,33 @@ def test_storage_roundtrip(tmp_path: Path) -> None:
     save_news_data(news, db_path)
     save_sentiment_data(sentiment, db_path)
     save_trading_logs(logs, db_path)
+    save_nlp_signals(
+        pd.DataFrame(
+            {
+                "symbol": ["000001"],
+                "date": ["2025-01-01"],
+                "sector_sentiment_score": [0.25],
+                "sector_sentiment_method": ["unit_peer"],
+                "sector_corpus_status": ["READY"],
+                "target_news_count": [1],
+                "sector_sentiment_missing_flag": [0],
+            }
+        ),
+        db_path,
+        source="unit_signal",
+    )
+    save_experiment_metrics(
+        pd.DataFrame({"experiment": ["unit_test"], "final_equity": [101000.0], "reliability_status": ["READY"]}),
+        db_path,
+        ticker="000001",
+        source="unit_metrics",
+    )
     assert len(load_table("market_table", db_path)) == 3
     assert len(load_table("news_table", db_path)) == 1
     assert len(load_table("sentiment_table", db_path)) == 1
     assert len(load_table("trading_log_table", db_path)) == 1
+    assert len(load_table("nlp_signal_table", db_path)) == 1
+    assert len(load_table("experiment_metrics_table", db_path)) == 2
 
 
 def test_cross_stock_common_window(tmp_path: Path) -> None:
