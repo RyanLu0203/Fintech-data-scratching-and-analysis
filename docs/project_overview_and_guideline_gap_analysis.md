@@ -1,7 +1,7 @@
 # NLP-RL Trading Platform 项目全景与 Guideline 缺口分析
 
 生成日期：2026-05-01  
-项目路径：`/Users/luxinyu/Desktop/Fintech/fintechgp`
+项目路径：`fintechgp`
 
 ## 1. 结论先讲
 

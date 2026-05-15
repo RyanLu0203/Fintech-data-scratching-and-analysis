@@ -741,7 +741,7 @@ reports/tables/market_impact_effect_summary.csv
 ## Installation
 
 ```bash
-cd /Users/luxinyu/Desktop/Fintech/fintechgp
+cd fintechgp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

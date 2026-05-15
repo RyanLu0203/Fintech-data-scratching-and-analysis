@@ -31,7 +31,7 @@ Supported source options:
 Example:
 
 ```bash
-cd /Users/luxinyu/Desktop/Fintech/fintechgp
+cd fintechgp
 python3 program/finance_text_scraper.py 002475 -o outputs/stocks/002475/data/luxshare_yahoo_or_fallback.csv --source auto --news-count 50 --retries 6 --pause 1.5
 ```
 
@@ -50,14 +50,14 @@ Recommended low-level runner for A-share fintech research. The main platform now
 Command example:
 
 ```bash
-cd /Users/luxinyu/Desktop/Fintech/fintechgp
+cd fintechgp
 python3 program/run_scraper.py 600519 --start-date 2026-04-15 --end-date 2026-04-22 --sources tencent --require-news
 ```
 
 Interactive mode:
 
 ```bash
-cd /Users/luxinyu/Desktop/Fintech/fintechgp
+cd fintechgp
 python3 program/run_scraper.py
 ```
 

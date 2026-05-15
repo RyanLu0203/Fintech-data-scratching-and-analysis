@@ -1,7 +1,7 @@
 # SQLite Storage Demo
 
 - Selected stock: `000002`
-- Demo database: `/Users/luxinyu/Desktop/Fintech/fintechgp/reports/sqlite_demo.db`
+- Demo database: `reports/sqlite_demo.db`
 - Purpose: demonstrate schema creation, write, read-back, row counts, date ranges, and sample query output.
 
 ## Sample Query Result
