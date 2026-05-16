@@ -27,6 +27,7 @@ from src.data_ingestion.cache import build_master_csv, resolve_cached_csv
 from src.evaluation.cross_stock import build_cross_stock_summary
 from src.evaluation.feasibility_audit import run_feasibility_audit
 from src.evaluation.information_density import generate_information_density_outputs
+from src.evaluation.market_impact_ablation import build_market_impact_cross_stock_summary
 from src.evaluation.peer_nlp_ablation import build_peer_nlp_cross_stock_summary, write_peer_nlp_integrity_report
 from src.evaluation.sector_peer_bootstrap import ensure_sector_peer_data
 from src.features.money_flow import compute_daily_net_flow
@@ -34,7 +35,7 @@ from src.features.money_flow import compute_daily_net_flow
 
 st.set_page_config(page_title="Peer NLP Trading Experiment", layout="wide")
 st.title("Peer NLP Transfer Trading Experiment")
-st.caption("只展示当前改进实验：held-out target stock + sector-peer NLP + marketwide-peer NLP + DQN cross analysis。")
+st.caption("支持 held-out target stock + peer sentiment NLP / market-impact NLP + DQN cross analysis。")
 
 
 PALETTE = {
@@ -73,6 +74,14 @@ OFFICIAL_STOCK_RESULT_FILES = [
     "peer_nlp_trading_logs.csv",
     "peer_nlp_training_rewards_all_seeds.csv",
     "peer_nlp_effect_summary.csv",
+    "peer_market_impact_daily_signal.csv",
+    "market_impact_ablation_metrics.csv",
+    "market_impact_ablation_metrics_by_seed.csv",
+    "market_impact_portfolio_curves.csv",
+    "market_impact_drawdown_curves.csv",
+    "market_impact_trading_logs.csv",
+    "market_impact_training_rewards_all_seeds.csv",
+    "market_impact_effect_summary.csv",
 ]
 OFFICIAL_STOCK_REPORT_FILES = [
     "peer_nlp_experiment_window.csv",
@@ -82,14 +91,25 @@ OFFICIAL_STOCK_REPORT_FILES = [
     "peer_nlp_report_section.md",
     "peer_nlp_state_vector_compliance.csv",
     "peer_nlp_train_eval_windows.csv",
+    "market_impact_state_vector_compliance.csv",
+    "market_impact_group_state_diagnostics.csv",
+    "market_impact_leakage_diagnostics.csv",
+    "market_impact_train_eval_windows.csv",
+    "market_impact_reliability_check.csv",
+    "market_impact_report_section.md",
 ]
 OFFICIAL_SYSTEM_FILES = [
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_summary.csv",
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_diagnostics.csv",
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_discussion.md",
+    SYSTEM_OUTPUT_DIR / "market_impact_cross_stock_summary.csv",
+    SYSTEM_OUTPUT_DIR / "market_impact_cross_stock_diagnostics.csv",
+    SYSTEM_OUTPUT_DIR / "market_impact_cross_stock_discussion.md",
     PROJECT_ROOT / "reports" / "tables" / "peer_nlp_effect_summary.csv",
     PROJECT_ROOT / "reports" / "tables" / "peer_nlp_integrity_check.csv",
     PROJECT_ROOT / "reports" / "tables" / "peer_nlp_corpus_summary.csv",
+    PROJECT_ROOT / "reports" / "tables" / "market_impact_effect_summary.csv",
+    PROJECT_ROOT / "reports" / "tables" / "market_impact_corpus_summary.csv",
     PROJECT_ROOT / "reports" / "peer_nlp_integrity_check.md",
 ]
 
@@ -454,11 +474,17 @@ def _first_value(frame: pd.DataFrame, column: str, default: object = "-") -> obj
 
 
 def load_stock_sector_mapping() -> pd.DataFrame:
-    """Load stock classification from generated reports with config as fallback."""
+    """Load stock classification with manual config as the authority.
+
+    Generated report tables can be stale after users edit the configured stock
+    universe.  The dashboard should therefore resolve sector/company metadata
+    from config first, while still falling back to generated reports for
+    symbols that only exist in local outputs.
+    """
     frames: list[pd.DataFrame] = []
     for path in [
-        PROJECT_ROOT / "reports" / "tables" / "stock_sector_mapping.csv",
         PROJECT_ROOT / "config" / "stock_sector_mapping.csv",
+        PROJECT_ROOT / "reports" / "tables" / "stock_sector_mapping.csv",
     ]:
         frame = safe_read_csv(path, dtype=str)
         if frame.empty or "symbol" not in frame.columns:
@@ -637,6 +663,8 @@ def resolve_company_name(symbol: str, typed_company: str) -> tuple[str, str]:
         manual = ""
     if configured and manual and manual != configured and manual in set(STOCK_ALIASES.values()):
         return configured, "config/stock_aliases.json corrected stale manual input"
+    if configured and manual == configured:
+        return configured, "config stock mapping"
     if manual:
         return manual, "manual"
     if configured:
@@ -646,20 +674,25 @@ def resolve_company_name(symbol: str, typed_company: str) -> tuple[str, str]:
 
 def build_company_resolution_table(primary_symbol: str, resolved_primary_company: str, run_cross_analysis: bool, cross_symbols_text: str) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
+    primary_code = normalize_symbol_for_path(primary_symbol)
     for symbol in build_symbol_plan(primary_symbol, run_cross_analysis, cross_symbols_text):
+        symbol = normalize_symbol_for_path(symbol)
         info = stock_classification(symbol)
-        if symbol == normalize_symbol_for_path(primary_symbol):
+        is_target = symbol == primary_code
+        if is_target:
             company, source = resolve_company_name(symbol, resolved_primary_company)
         else:
             company, source = resolve_company_name(symbol, "")
         rows.append(
             {
+                "role": "experiment_target" if is_target else "sector_peer_training_candidate",
                 "symbol": symbol,
                 "company_name": company or info["company_name"],
                 "sector": info["sector"],
                 "industry": info["industry"],
                 "company_source": source,
                 "sector_source": info["sector_source"],
+                "target_excluded_from_training": not is_target,
             }
         )
     return pd.DataFrame(rows)
@@ -719,6 +752,7 @@ def cleanup_previous_dashboard_experiment(target_symbols: list[str]) -> None:
         "workflow_symbols",
         "workflow_failures",
         "cross_payload",
+        "market_cross_payload",
         "workflow_phase_logs",
         "workflow_status_rows",
         "training_status_rows",
@@ -2147,6 +2181,7 @@ def create_export_bundle(
     cross_payload: dict[str, object] | None,
     *,
     target_symbol: str | None = None,
+    market_cross_payload: dict[str, object] | None = None,
 ) -> dict[str, Path]:
     export_root = SYSTEM_OUTPUT_DIR / "dashboard_exports"
     export_root.mkdir(parents=True, exist_ok=True)
@@ -2196,10 +2231,25 @@ def create_export_bundle(
         cross_discussion_path = Path(str(cross_payload["discussion_md"]))
         markdown_lines.extend(
             [
-        "## Peer Cross Analysis",
+                "## Peer Cross Analysis",
                 "",
                 f"- Summary CSV: `{cross_summary_path}`",
                 f"- Discussion Markdown: `{cross_discussion_path}`",
+                "",
+            ]
+        )
+
+    market_cross_summary_path: Path | None = None
+    market_cross_discussion_path: Path | None = None
+    if market_cross_payload:
+        market_cross_summary_path = Path(str(market_cross_payload["summary_csv"]))
+        market_cross_discussion_path = Path(str(market_cross_payload["discussion_md"]))
+        markdown_lines.extend(
+            [
+                "## Market-Impact Cross Analysis",
+                "",
+                f"- Summary CSV: `{market_cross_summary_path}`",
+                f"- Discussion Markdown: `{market_cross_discussion_path}`",
                 "",
             ]
         )
@@ -2220,6 +2270,10 @@ def create_export_bundle(
             archive.write(cross_summary_path, arcname=f"cross_stock/{cross_summary_path.name}")
         if cross_discussion_path and cross_discussion_path.exists():
             archive.write(cross_discussion_path, arcname=f"cross_stock/{cross_discussion_path.name}")
+        if market_cross_summary_path and market_cross_summary_path.exists():
+            archive.write(market_cross_summary_path, arcname=f"cross_stock/{market_cross_summary_path.name}")
+        if market_cross_discussion_path and market_cross_discussion_path.exists():
+            archive.write(market_cross_discussion_path, arcname=f"cross_stock/{market_cross_discussion_path.name}")
         for symbol in completed_symbols:
             bundle = load_stock_bundle(symbol)
             for key in ["selected_csv"]:
@@ -2239,6 +2293,16 @@ def create_export_bundle(
                 stock_reports_dir(symbol) / "peer_nlp_report_section.md",
                 stock_reports_dir(symbol) / "peer_nlp_information_density_split.csv",
                 stock_reports_dir(symbol) / "peer_nlp_train_eval_windows.csv",
+                stock_results_dir(symbol) / "peer_market_impact_daily_signal.csv",
+                stock_results_dir(symbol) / "market_impact_ablation_metrics.csv",
+                stock_results_dir(symbol) / "market_impact_ablation_metrics_by_seed.csv",
+                stock_results_dir(symbol) / "market_impact_portfolio_curves.csv",
+                stock_results_dir(symbol) / "market_impact_drawdown_curves.csv",
+                stock_results_dir(symbol) / "market_impact_trading_logs.csv",
+                stock_results_dir(symbol) / "market_impact_effect_summary.csv",
+                stock_reports_dir(symbol) / "market_impact_reliability_check.csv",
+                stock_reports_dir(symbol) / "market_impact_report_section.md",
+                stock_reports_dir(symbol) / "market_impact_train_eval_windows.csv",
             ]:
                 if path.exists():
                     archive.write(path, arcname=f"{symbol}/{path.name}")
@@ -2374,9 +2438,18 @@ default_symbol = existing_stock_dirs[-1].name if existing_stock_dirs else settin
 default_company, default_company_source = resolve_company_name(default_symbol, "")
 
 st.sidebar.header("Peer NLP Experiment")
-st.sidebar.caption("当前 dashboard 只服务改进后的 peer-sector / marketwide-peer NLP transfer 实验。")
-primary_symbol = normalize_symbol_for_path(st.sidebar.text_input("Experiment target symbol", value=default_symbol))
-typed_company = st.sidebar.text_input("Target company name", value=default_company)
+st.sidebar.caption("当前 dashboard 支持 held-out peer sentiment transfer 和 peer market-impact transfer 实验。")
+if "dashboard_target_symbol" not in st.session_state:
+    st.session_state["dashboard_target_symbol"] = default_symbol
+symbol_input = st.sidebar.text_input("Experiment target symbol", key="dashboard_target_symbol")
+primary_symbol = normalize_symbol_for_path(symbol_input)
+auto_company, auto_company_source = resolve_company_name(primary_symbol, "")
+if "dashboard_target_company" not in st.session_state:
+    st.session_state["dashboard_target_company"] = auto_company or default_company
+if st.session_state.get("_dashboard_company_synced_for_symbol") != primary_symbol:
+    st.session_state["dashboard_target_company"] = auto_company
+    st.session_state["_dashboard_company_synced_for_symbol"] = primary_symbol
+typed_company = st.sidebar.text_input("Target company name", key="dashboard_target_company")
 resolved_company, company_source = resolve_company_name(primary_symbol, typed_company)
 st.sidebar.caption(f"Company used for news search: {resolved_company or 'manual input required'} ({company_source})")
 
@@ -2387,6 +2460,26 @@ end_date = st.sidebar.date_input("End date", value=default_end)
 sources = st.sidebar.text_input("Data source priority", value="tencent")
 news_count = int(st.sidebar.number_input("News cap", min_value=0, value=5000, step=100))
 episodes = int(st.sidebar.number_input("DQN episodes", min_value=1, value=200, step=10))
+
+experiment_mode = st.sidebar.radio(
+    "Experiment type",
+    options=["peer_sentiment", "market_impact"],
+    format_func=lambda value: {
+        "peer_sentiment": "Peer sentiment NLP",
+        "market_impact": "Market-impact NLP",
+    }.get(value, value),
+    horizontal=False,
+)
+run_market_impact_nlp = experiment_mode == "market_impact"
+experiment_label = "market-impact NLP" if run_market_impact_nlp else "peer sentiment NLP"
+market_impact_horizon_days = 3
+market_impact_pos_threshold = 0.015
+market_impact_neg_threshold = -0.015
+if run_market_impact_nlp:
+    with st.sidebar.expander("Market-impact label settings", expanded=False):
+        market_impact_horizon_days = int(st.number_input("Impact horizon days", min_value=1, max_value=20, value=3, step=1))
+        market_impact_pos_threshold = float(st.number_input("Positive return threshold", min_value=0.0, value=0.015, step=0.005, format="%.3f"))
+        market_impact_neg_threshold = float(st.number_input("Negative return threshold", max_value=0.0, value=-0.015, step=0.005, format="%.3f"))
 
 run_peer_nlp_experiment = True
 run_legacy_stock_level_nlp = False
@@ -2402,26 +2495,55 @@ run_cross_pipeline = True
 run_cross_existing_only = False
 run_cross_preflight_only = False
 supplement_sector_peers = True
-st.sidebar.caption("Fixed run options: target data cache is reused/updated automatically; same-sector peers are supplemented before the peer NLP experiment; SQLite persistence is enabled and legacy stock-level NLP is disabled.")
+st.sidebar.caption(f"Fixed run options: target data cache is reused/updated automatically; same-sector peers are supplemented before the {experiment_label} experiment; SQLite persistence is enabled and legacy stock-level NLP is disabled.")
 
 target_sector_peers = same_sector_symbols(primary_symbol, include_target=False)
+target_sector_peers = [symbol for symbol in target_sector_peers if normalize_symbol_for_path(symbol) != primary_symbol]
 cross_symbols_text = ", ".join(target_sector_peers)
 company_resolution_table = build_company_resolution_table(primary_symbol, resolved_company, cross_enabled, cross_symbols_text)
-st.sidebar.markdown("#### Auto peer/training plan")
-training_preview = pd.DataFrame(
+target_info = stock_classification(primary_symbol)
+target_preview = pd.DataFrame(
     [
         {
-            "experiment_set": primary_symbol,
-            "target_company": resolved_company,
-            "target_sector": stock_classification(primary_symbol)["sector"],
-            "sector_peer_training_set": ", ".join(target_sector_peers) or "UNKNOWN sector / no configured peers",
-            "target_exclusion_rule": "target stock is excluded from NLP training",
+            "target": primary_symbol,
+            "company": resolved_company,
+            "sector": target_info["sector"],
         }
     ]
 )
-st.sidebar.dataframe(training_preview, use_container_width=True, hide_index=True)
+training_peer_preview = company_resolution_table[
+    company_resolution_table["role"].astype(str) == "sector_peer_training_candidate"
+].copy()
+training_peer_preview = training_peer_preview[
+    training_peer_preview["symbol"].astype(str).apply(normalize_symbol_for_path) != primary_symbol
+]
+st.sidebar.markdown("#### Auto target/peer plan")
+st.sidebar.caption("Target is resolved first; only same-sector non-target stocks are used as NLP training peers.")
+st.sidebar.dataframe(target_preview, use_container_width=True, hide_index=True)
+if training_peer_preview.empty:
+    st.sidebar.warning("No configured same-sector training peers were found for this target.")
+else:
+    st.sidebar.caption(f"Training peers: {len(training_peer_preview)} same-sector stocks; target excluded.")
+    st.sidebar.dataframe(
+        training_peer_preview[["symbol", "company_name", "sector"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 with st.sidebar.expander("Resolved target and training peer plan", expanded=False):
-    st.dataframe(company_resolution_table, use_container_width=True, hide_index=True)
+    target_rows = company_resolution_table[company_resolution_table["role"].astype(str) == "experiment_target"].copy()
+    peer_rows = training_peer_preview.copy()
+    st.markdown("**Experiment target**")
+    st.dataframe(
+        target_rows[["symbol", "company_name", "sector", "industry", "sector_source"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.markdown("**Training peers (target excluded)**")
+    st.dataframe(
+        peer_rows[["symbol", "company_name", "sector", "industry", "sector_source", "target_excluded_from_training"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 preview = cache_preview(primary_symbol, str(start_date), str(end_date))
 if preview["status"] == "covered":
@@ -2431,7 +2553,7 @@ else:
 if "master_start" in preview and "master_end" in preview:
     st.sidebar.caption(f"Local cached timeline: {preview['master_start']} -> {preview['master_end']}")
 
-run_clicked = st.sidebar.button("Run target peer experiment", type="primary", use_container_width=True)
+run_clicked = st.sidebar.button(f"Run target {experiment_label} experiment", type="primary", use_container_width=True)
 
 if run_clicked:
     selected_symbols_for_cross = [primary_symbol]
@@ -2650,12 +2772,12 @@ if run_clicked:
             progress.progress(index / max(len(symbols_to_run), 1))
             render_live_status_table(status_rows, live_status_box)
             continue
-        status.info(f"Running peer experiment for `{symbol}` ({company or 'company name not provided'}) [{index}/{len(symbols_to_run)}]")
+        status.info(f"Running {experiment_label} experiment for `{symbol}` ({company or 'company name not provided'}) [{index}/{len(symbols_to_run)}]")
         row = next(item for item in status_rows if item["symbol"] == symbol)
         row["status"] = "running"
         row["stage"] = "starting"
         row["last_update"] = datetime.now().strftime("%H:%M:%S")
-        row["message"] = f"Starting peer experiment {index}/{len(symbols_to_run)}"
+        row["message"] = f"Starting {experiment_label} experiment {index}/{len(symbols_to_run)}"
         render_live_status_table(status_rows, live_status_box)
         try:
             def on_status(stage: str, message: str, *, _symbol: str = symbol) -> None:
@@ -2780,6 +2902,10 @@ if run_clicked:
                 run_peer_nlp_experiment=run_peer_nlp_experiment,
                 run_legacy_stock_level_nlp=run_legacy_stock_level_nlp,
                 allow_fetch_missing_sector_peers=allow_fetch_missing_sector_peers,
+                run_market_impact_nlp=run_market_impact_nlp,
+                market_impact_horizon_days=market_impact_horizon_days,
+                market_impact_pos_threshold=market_impact_pos_threshold,
+                market_impact_neg_threshold=market_impact_neg_threshold,
             )
             completed_symbols.append(symbol)
             run_rows.append(
@@ -2807,24 +2933,27 @@ if run_clicked:
         render_live_status_table(status_rows, live_status_box)
 
     cross_payload: dict[str, object] | None = None
+    market_cross_payload: dict[str, object] | None = None
     if run_cross_analysis and completed_symbols:
-        status.info("Building target peer-NLP comparison summary from the completed output.")
+        status.info("Building target experiment comparison summary from the completed output.")
         for row in status_rows:
             if row["symbol"] in completed_symbols:
-                row["stage"] = "peer_summary"
-                row["message"] = "Waiting for peer-NLP summary generation"
+                row["stage"] = "experiment_summary"
+                row["message"] = "Waiting for experiment summary generation"
                 row["last_update"] = datetime.now().strftime("%H:%M:%S")
         render_live_status_table(status_rows, live_status_box)
         cross_payload = build_peer_nlp_cross_stock_summary(selected_symbols=completed_symbols)
         write_peer_nlp_integrity_report(selected_symbols=completed_symbols)
+        if run_market_impact_nlp:
+            market_cross_payload = build_market_impact_cross_stock_summary(selected_symbols=completed_symbols)
         for row in status_rows:
             if row["symbol"] in completed_symbols:
                 row["stage"] = "done"
-                row["message"] = "Included in target peer-NLP summary"
+                row["message"] = "Included in target experiment summary"
                 row["last_update"] = datetime.now().strftime("%H:%M:%S")
         render_live_status_table(status_rows, live_status_box)
     elif run_cross_analysis and not completed_symbols:
-        status.warning("No target stock completed successfully, so no peer-NLP summary was generated.")
+        status.warning("No target stock completed successfully, so no experiment summary was generated.")
     else:
         status.success("Workflow completed.")
 
@@ -2832,15 +2961,17 @@ if run_clicked:
     st.session_state["workflow_symbols"] = completed_symbols
     st.session_state["workflow_failures"] = failures
     st.session_state["cross_payload"] = cross_payload
+    st.session_state["market_cross_payload"] = market_cross_payload
     st.session_state["workflow_phase_logs"] = phase_logs
     st.session_state["workflow_status_rows"] = status_rows
-    st.session_state["workflow_export_bundle"] = create_export_bundle(run_rows, completed_symbols, failures, cross_payload, target_symbol=primary_symbol)
+    st.session_state["workflow_export_bundle"] = create_export_bundle(run_rows, completed_symbols, failures, cross_payload, target_symbol=primary_symbol, market_cross_payload=market_cross_payload)
 
-st.subheader("Target Peer Experiment Run Status")
+st.subheader("Target Experiment Run Status")
 workflow_runs = st.session_state.get("workflow_runs", [])
 workflow_failures = st.session_state.get("workflow_failures", [])
 completed_symbols = st.session_state.get("workflow_symbols", [])
 cross_payload = st.session_state.get("cross_payload")
+market_cross_payload = st.session_state.get("market_cross_payload")
 workflow_phase_logs = st.session_state.get("workflow_phase_logs", [])
 workflow_status_rows = st.session_state.get("workflow_status_rows", [])
 training_status_rows = st.session_state.get("training_status_rows", [])
@@ -2867,9 +2998,16 @@ if workflow_runs:
             for failure in workflow_failures:
                 st.error(f"{failure['symbol']}: {failure['error']}")
                 st.code(failure["traceback"])
+    if market_cross_payload:
+        with st.expander("Market-impact summary outputs", expanded=False):
+            market_summary = safe_read_csv(Path(str(market_cross_payload.get("summary_csv", ""))))
+            if market_summary.empty:
+                st.info("Market-impact summary was generated, but no valid rows are available yet.")
+            else:
+                st.dataframe(market_summary, use_container_width=True, hide_index=True)
     if workflow_export_bundle:
         st.markdown("#### Download Experiment Outputs")
-        st.caption("下载包只包含本次 target peer NLP 实验的描述性结果、官方 peer_nlp 表格和可视化 HTML；不会打包旧 stock-level NLP 结果。")
+        st.caption("下载包只包含本次 target 实验的描述性结果、官方 peer_nlp / market_impact 表格和可视化 HTML；不会打包旧 stock-level NLP 结果。")
         export_cols = st.columns(3)
         summary_md_path = Path(str(workflow_export_bundle["summary_md"]))
         zip_path = Path(str(workflow_export_bundle["zip_path"]))

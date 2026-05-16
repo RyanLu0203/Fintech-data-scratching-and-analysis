@@ -519,7 +519,13 @@ def run_pipeline_for_symbol(
         "portfolio_curves_csv": str(results_dir / "portfolio_curves.csv"),
         "high_density_ablation_metrics_csv": str(results_dir / "high_density_ablation_metrics.csv"),
         "high_density_portfolio_curves_csv": str(results_dir / "high_density_portfolio_curves.csv"),
-        "official_current_experiment": "peer_sector_nlp_transfer" if run_peer_nlp_experiment else "legacy_stock_level_nlp",
+        "official_current_experiment": (
+            "peer_market_impact_nlp"
+            if run_market_impact_nlp
+            else "peer_sector_nlp_transfer"
+            if run_peer_nlp_experiment
+            else "legacy_stock_level_nlp"
+        ),
         "peer_nlp_daily_sentiment_csv": str(results_dir / "peer_nlp_daily_sentiment.csv"),
         "peer_nlp_ablation_metrics_csv": str(results_dir / "peer_nlp_ablation_metrics.csv"),
         "peer_nlp_portfolio_curves_csv": str(results_dir / "peer_nlp_portfolio_curves.csv"),

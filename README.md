@@ -210,7 +210,7 @@ RS(t) = AvgGain_n(t) / AvgLoss_n(t)
 MACD：
 
 ```text
-MACD(t) = EMA_12(t) - EMA_26(t)
+MACD(t) = EMA_12(t) - EMA_26(t) 
 Signal(t) = EMA_9(MACD(t))
 ```
 
@@ -741,7 +741,7 @@ reports/tables/market_impact_effect_summary.csv
 ## Installation
 
 ```bash
-cd fintechgp
+cd /Users/luxinyu/Desktop/Fintech/fintechgp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
