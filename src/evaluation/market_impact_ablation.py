@@ -55,7 +55,8 @@ from src.nlp.peer_sentiment import (
 )
 from src.rl.train import evaluate_agent, train_dqn
 
-MARKET_IMPACT_EXPERIMENT = "peer_sentiment_plus_market_impact"
+MARKET_IMPACT_EXPERIMENT = "sector_sentiment_impact"
+MARKETWIDE_MARKET_IMPACT_EXPERIMENT = "sector_sentiment_impact_plus_marketwide"
 SECTOR_SENTIMENT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_sentiment_score"]
 MARKETWIDE_SENTIMENT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["marketwide_sentiment_score"]
 SECTOR_IMPACT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_impact_score"]
@@ -71,8 +72,8 @@ NLP_SIGNAL_COLUMNS = [
 EXPERIMENT_SIGNAL_COLUMNS = {
     "dqn_without_nlp": None,
     "dqn_with_sector_sentiment_nlp": "sector_sentiment_score",
-    "dqn_with_marketwide_sentiment_nlp": "marketwide_sentiment_score",
     "dqn_with_sector_impact_nlp": "sector_impact_score",
+    "dqn_with_marketwide_sentiment_nlp": "marketwide_sentiment_score",
     "dqn_with_marketwide_impact_nlp": "marketwide_impact_score",
 }
 
@@ -85,8 +86,10 @@ def _peer_sentiment_cache_matches_scope(path: Path, include_marketwide_peer: boo
         return False
     status = str(frame.get("marketwide_corpus_status", pd.Series([""])).dropna().iloc[0]) if "marketwide_corpus_status" in frame.columns and frame["marketwide_corpus_status"].notna().any() else ""
     peer_count = int(pd.to_numeric(frame.get("marketwide_peer_stock_count", 0), errors="coerce").fillna(0).max()) if "marketwide_peer_stock_count" in frame.columns else 0
+    sector_count = int(pd.to_numeric(frame.get("marketwide_peer_sector_count", 0), errors="coerce").fillna(0).max()) if "marketwide_peer_sector_count" in frame.columns else 0
+    distinct = bool(pd.to_numeric(frame.get("marketwide_distinct_from_sector", 0), errors="coerce").fillna(0).max() > 0) if "marketwide_distinct_from_sector" in frame.columns else False
     if include_marketwide_peer:
-        return status == "READY" and peer_count > 0
+        return status == "READY" and peer_count >= 12 and sector_count >= 4 and distinct
     return status in {"DISABLED", "INSUFFICIENT", ""} and peer_count == 0
 
 
@@ -339,11 +342,13 @@ def run_market_impact_ablation_study(
     sentiment_status = _sentiment_corpus_status(peer_daily)
     impact_status = _impact_corpus_status(impact_daily)
     marketwide_required = _marketwide_required(peer_daily, impact_daily)
+    official_experiment = MARKETWIDE_MARKET_IMPACT_EXPERIMENT if marketwide_required else MARKET_IMPACT_EXPERIMENT
     target_coverage = _target_news_coverage(peer_daily, impact_daily)
     marketwide_disabled_reason = "" if marketwide_required else "marketwide_peer_scope_disabled"
     state_specs = {
         "dqn_without_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": None, "ready": True, "disabled": False},
         "dqn_with_sector_sentiment_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": "sector_sentiment_score", "ready": sentiment_status["sector"] == "READY", "disabled": False},
+        "dqn_with_sector_impact_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": "sector_impact_score", "ready": impact_status["sector"] == "READY", "disabled": False},
         "dqn_with_marketwide_sentiment_nlp": {
             "columns": UNIFIED_DQN_STATE_COLUMNS,
             "signal_column": "marketwide_sentiment_score",
@@ -351,7 +356,6 @@ def run_market_impact_ablation_study(
             "disabled": not marketwide_required,
             "not_ready_reason": marketwide_disabled_reason,
         },
-        "dqn_with_sector_impact_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": "sector_impact_score", "ready": impact_status["sector"] == "READY", "disabled": False},
         "dqn_with_marketwide_impact_nlp": {
             "columns": UNIFIED_DQN_STATE_COLUMNS,
             "signal_column": "marketwide_impact_score",
@@ -441,7 +445,7 @@ def run_market_impact_ablation_study(
                         progress_callback=_dqn_progress_emitter(emit, "dqn_pretrain", symbol, "shared_market_only_pretrain", seed, "pretraining"),
                     )
                     pretrain_rewards = pretrained["training_rewards"]
-                    pretrain_rewards["official_experiment"] = MARKET_IMPACT_EXPERIMENT
+                    pretrain_rewards["official_experiment"] = official_experiment
                     pretrain_rewards["training_period"] = split_info.get("pretraining_period_label", "target_market_learning_window_with_zero_nlp_signal")
                     pretrain_rewards["evaluation_period"] = "not_evaluated"
                     pretrain_rewards["phase"] = "market_only_pretrain"
@@ -468,7 +472,7 @@ def run_market_impact_ablation_study(
             )
             emit(_dqn_stage_for_experiment(experiment), f"{symbol}: evaluating {experiment} seed={seed} on high-density test window.")
             rewards = trained["training_rewards"]
-            rewards["official_experiment"] = MARKET_IMPACT_EXPERIMENT
+            rewards["official_experiment"] = official_experiment
             rewards["training_period"] = split_info.get("training_period_label", "target_market_learning_window")
             rewards["evaluation_period"] = split_info.get("evaluation_period_label", "target_high_density_window")
             rewards["phase"] = "nlp_finetune" if initial_state is not None else "single_stage_train"
@@ -484,7 +488,7 @@ def run_market_impact_ablation_study(
                 reward_mode=reward_mode,
                 state_scaler=trained.get("state_scaler"),
             )
-            log["official_experiment"] = MARKET_IMPACT_EXPERIMENT
+            log["official_experiment"] = official_experiment
             log["training_period"] = split_info.get("training_period_label", "target_market_learning_window")
             log["evaluation_period"] = split_info.get("evaluation_period_label", "target_high_density_window")
             trading_logs.append(log)
@@ -498,8 +502,8 @@ def run_market_impact_ablation_study(
     emit("metrics", f"{symbol}: aggregating seed metrics, portfolio curves, drawdowns, trading logs, and effect labels.")
     seed_metrics_df = pd.DataFrame(seed_metrics)
     metrics_df = _aggregate_peer_seed_metrics(seed_metrics_df)
-    metrics_df["official_experiment"] = MARKET_IMPACT_EXPERIMENT
-    seed_metrics_df["official_experiment"] = MARKET_IMPACT_EXPERIMENT
+    metrics_df["official_experiment"] = official_experiment
+    seed_metrics_df["official_experiment"] = official_experiment
     curves_df = pd.concat(portfolio_curves, ignore_index=True) if portfolio_curves else pd.DataFrame()
     drawdowns_df = pd.concat(drawdown_curves, ignore_index=True) if drawdown_curves else pd.DataFrame()
     logs_df = pd.concat(trading_logs, ignore_index=True) if trading_logs else pd.DataFrame(columns=TRADING_LOG_COLUMNS)
@@ -751,7 +755,7 @@ def _market_impact_effect_summary(
         "target_symbol": symbol,
         "target_company_name": target_company,
         "target_sector": target_sector,
-        "official_experiment": MARKET_IMPACT_EXPERIMENT,
+        "official_experiment": MARKETWIDE_MARKET_IMPACT_EXPERIMENT if marketwide_required else MARKET_IMPACT_EXPERIMENT,
         "baseline_peer_sentiment_experiment": SENTIMENT_BASELINE_EXPERIMENT,
         "best_strategy": best_strategy,
         "best_nlp_type": best_nlp_type,
@@ -922,9 +926,9 @@ def _write_market_impact_report(symbol: str, reports_dir: Path, effect: pd.DataF
             "# Peer Market-Impact NLP Result",
             "",
             f"- Target stock: `{symbol}`",
-            "- Base experiment preserved: `peer_sector_nlp_transfer`.",
-            "- Add-on experiment: `peer_sentiment_plus_market_impact`.",
-            "- DQN groups: no-NLP, sector sentiment, marketwide sentiment, sector impact, marketwide impact.",
+            "- Official default experiment: no-NLP control, sector sentiment, and sector impact.",
+            "- Optional add-on: marketwide sentiment and marketwide impact peer benchmark groups.",
+            "- DQN group order: no-NLP, sector sentiment, sector impact, marketwide sentiment, marketwide impact.",
             f"- DQN training window: `{split_info.get('train_start', '')}` to `{split_info.get('train_end', '')}`",
             f"- DQN testing window: `{split_info.get('test_start', '')}` to `{split_info.get('test_end', '')}`",
             f"- Best strategy: `{row.get('best_strategy', 'N/A')}`",
@@ -933,7 +937,7 @@ def _write_market_impact_report(symbol: str, reports_dir: Path, effect: pd.DataF
             f"- Marketwide impact label: `{row.get('marketwide_impact_label', 'Inconclusive')}`",
             f"- Reliability status: `{row.get('reliability_status', 'UNKNOWN')}`",
             "",
-            "Market-impact NLP is trained on peer news labelled by peer stocks' post-news future returns. The target stock is held out from NLP training labels. Buy-and-hold is a benchmark, not one of the five DQN groups.",
+            "Market-impact NLP is trained on peer news labelled by peer stocks' post-news future returns. The target stock is held out from NLP training labels. Buy-and-hold is a benchmark, not one of the DQN experiment groups.",
         ]
     )
     (reports_dir / "market_impact_report_section.md").write_text(text, encoding="utf-8")

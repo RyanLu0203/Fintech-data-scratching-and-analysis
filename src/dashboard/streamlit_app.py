@@ -455,6 +455,32 @@ def get_pipeline_runner():
     return main_module.run_pipeline_for_symbol
 
 
+def density_from_peer_daily(peer_daily: pd.DataFrame) -> pd.DataFrame:
+    if peer_daily.empty or "date" not in peer_daily.columns:
+        return pd.DataFrame()
+    daily = peer_daily.copy()
+    daily["date"] = pd.to_datetime(daily["date"], errors="coerce")
+    daily = daily.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if daily.empty:
+        return pd.DataFrame()
+    count_col = "target_news_count" if "target_news_count" in daily.columns else ""
+    available_col = "target_news_available" if "target_news_available" in daily.columns else ""
+    result = pd.DataFrame({"date": daily["date"]})
+    result["daily_news_count"] = pd.to_numeric(daily.get(count_col, 0), errors="coerce").fillna(0).clip(lower=0) if count_col else 0
+    if available_col:
+        result["news_available"] = pd.to_numeric(daily[available_col], errors="coerce").fillna(0).astype(int)
+    else:
+        result["news_available"] = (result["daily_news_count"] > 0).astype(int)
+    total = float(result["daily_news_count"].sum())
+    result["cumulative_news_count"] = result["daily_news_count"].cumsum()
+    result["cumulative_news_pct"] = result["cumulative_news_count"] / total if total > 0 else 0.0
+    result["recent_cumulative_news_pct"] = result["cumulative_news_pct"]
+    if "high_density_eval_start" in daily.columns and daily["high_density_eval_start"].notna().any():
+        start = pd.to_datetime(daily["high_density_eval_start"].dropna().iloc[0], errors="coerce")
+        result["is_high_density_window"] = result["date"] >= start if pd.notna(start) else False
+    return result
+
+
 def load_stock_aliases() -> dict[str, str]:
     aliases: dict[str, str] = {}
     mapping_path = PROJECT_ROOT / "config" / "stock_sector_mapping.csv"
@@ -889,6 +915,8 @@ def load_stock_bundle(symbol: str) -> dict[str, object]:
     logs = safe_read_csv(results_dir / "trading_logs.csv")
     training_rewards = safe_read_csv(results_dir / "training_rewards_all_seeds.csv")
     density_split = safe_read_csv(reports_dir / "information_density_split.csv")
+    if density_split.empty:
+        density_split = safe_read_csv(reports_dir / "peer_nlp_information_density_split.csv")
     daily_density = safe_read_csv(reports_dir / "daily_news_density.csv")
     window_summary = safe_read_csv(reports_dir / "experiment_window_summary.csv")
     high_density_metrics = safe_read_csv(results_dir / "high_density_ablation_metrics.csv")
@@ -913,6 +941,8 @@ def load_stock_bundle(symbol: str) -> dict[str, object]:
     market_impact_effect = safe_read_csv(results_dir / "market_impact_effect_summary.csv")
     market_impact_reliability = safe_read_csv(reports_dir / "market_impact_reliability_check.csv")
     market_impact_state_diagnostics = safe_read_csv(reports_dir / "market_impact_group_state_diagnostics.csv")
+    if daily_density.empty:
+        daily_density = density_from_peer_daily(peer_daily)
     behavior_summary = safe_read_csv(reports_dir / "model_behavior_visual_summary.csv")
     trade_outcomes = safe_read_csv(reports_dir / "trade_outcome_win_rate.csv")
     summary_json = latest_matching_file(reports_dir, "*_analysis_summary.json")
@@ -999,6 +1029,7 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
     daily_net_flow = bundle["daily_net_flow"]
     peer_daily = bundle.get("peer_daily", pd.DataFrame())
     peer_metrics = bundle.get("peer_metrics", pd.DataFrame())
+    market_impact_metrics = bundle.get("market_impact_metrics", pd.DataFrame())
     peer_seed_metrics = bundle.get("peer_seed_metrics", pd.DataFrame())
     peer_curves = bundle.get("peer_curves", pd.DataFrame())
     peer_drawdowns = bundle.get("peer_drawdowns", pd.DataFrame())
@@ -1006,7 +1037,7 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
     peer_effect = bundle.get("peer_effect", pd.DataFrame())
     peer_integrity = bundle.get("peer_integrity", pd.DataFrame())
 
-    official_available = isinstance(peer_metrics, pd.DataFrame) and not peer_metrics.empty
+    official_available = isinstance(market_impact_metrics, pd.DataFrame) and not market_impact_metrics.empty
     sentiment = peer_daily if isinstance(peer_daily, pd.DataFrame) else pd.DataFrame()
     metrics = peer_metrics if isinstance(peer_metrics, pd.DataFrame) else pd.DataFrame()
     seed_metrics = peer_seed_metrics if isinstance(peer_seed_metrics, pd.DataFrame) else pd.DataFrame()
@@ -1024,11 +1055,11 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
     market_rows = int(data["close"].notna().sum()) if "close" in data.columns else len(data)
     if not official_available:
         st.warning(
-            "Official peer-sector NLP outputs are missing for this stock. "
-            "Legacy stock-level NLP is not displayed as the main result; use the workflow controls to generate peer_nlp_* outputs."
+            "Official sector sentiment/impact outputs are missing for this stock. "
+            "Legacy stock-level NLP is not displayed as the main result; use the workflow controls to generate market_impact_* outputs."
         )
     else:
-        st.success("Official current experiment loaded: Peer-Sector NLP Transfer. Legacy stock-level NLP is excluded from the main view.")
+        st.success("Official current experiment loaded: sector sentiment/impact DQN comparison. Legacy stock-level NLP is excluded from the main view.")
 
     score_col = "marketwide_sentiment_score" if not sentiment.empty and "marketwide_sentiment_score" in sentiment.columns else "daily_sentiment_score" if not sentiment.empty and "daily_sentiment_score" in sentiment.columns else "sentiment_score"
     sentiment_coverage = 0.0
@@ -1372,6 +1403,8 @@ def stock_status_rows(symbol: str, bundle: dict[str, object]) -> list[dict[str, 
     peer_metrics = bundle.get("peer_metrics", pd.DataFrame())
     peer_effect = bundle.get("peer_effect", pd.DataFrame())
     peer_integrity = bundle.get("peer_integrity", pd.DataFrame())
+    market_impact_metrics = bundle.get("market_impact_metrics", pd.DataFrame())
+    market_impact_effect = bundle.get("market_impact_effect", pd.DataFrame())
     cross_summary = safe_read_csv(SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_summary.csv")
     density_split = bundle.get("density_split", pd.DataFrame())
     window_summary = bundle.get("window_summary", pd.DataFrame())
@@ -1398,8 +1431,10 @@ def stock_status_rows(symbol: str, bundle: dict[str, object]) -> list[dict[str, 
             "detail": f"{dates.min().date()} to {dates.max().date()}" if dates.notna().any() else "-",
         },
         {"item": "Data availability", "status": status_value(isinstance(data, pd.DataFrame) and not data.empty), "detail": f"{len(data) if isinstance(data, pd.DataFrame) else 0} rows"},
-        {"item": "Official peer NLP outputs", "status": status_value(isinstance(peer_metrics, pd.DataFrame) and not peer_metrics.empty), "detail": "outputs/stocks/<symbol>/results/peer_nlp_ablation_metrics.csv"},
-        {"item": "Peer NLP effect summary", "status": status_value(isinstance(peer_effect, pd.DataFrame) and not peer_effect.empty), "detail": "peer_nlp_effect_summary.csv"},
+        {"item": "Official sector impact outputs", "status": status_value(isinstance(market_impact_metrics, pd.DataFrame) and not market_impact_metrics.empty), "detail": "outputs/stocks/<symbol>/results/market_impact_ablation_metrics.csv"},
+        {"item": "Official impact effect summary", "status": status_value(isinstance(market_impact_effect, pd.DataFrame) and not market_impact_effect.empty), "detail": "market_impact_effect_summary.csv"},
+        {"item": "Peer sentiment diagnostics", "status": status_value(isinstance(peer_metrics, pd.DataFrame) and not peer_metrics.empty), "detail": "peer_nlp_ablation_metrics.csv"},
+        {"item": "Peer NLP effect diagnostics", "status": status_value(isinstance(peer_effect, pd.DataFrame) and not peer_effect.empty), "detail": "peer_nlp_effect_summary.csv"},
         {"item": "Peer NLP integrity", "status": status_value(isinstance(peer_integrity, pd.DataFrame) and not peer_integrity.empty), "detail": "peer_nlp_integrity_check.csv"},
         {"item": "Information density status", "status": density_status, "detail": density_detail},
         {"item": "FinBERT status", "status": finbert_status, "detail": "ok=used; skipped=fallback sentiment"},
@@ -1428,7 +1463,7 @@ def render_overview_page(symbol: str, bundle: dict[str, object]) -> None:
             industry = str(row.get("industry", pd.Series(["UNKNOWN"])).iloc[0] or "UNKNOWN")
             company = str(row.get("company_name", pd.Series([company])).iloc[0] or company)
     st.info(
-        f"Current official experiment: Peer-Sector NLP Transfer. Target `{symbol}` "
+        f"Current official experiment: sector sentiment/impact DQN comparison. Target `{symbol}` "
         f"({company or '-'}) belongs to sector `{sector}`, industry `{industry}`."
     )
     st.dataframe(
@@ -1441,13 +1476,18 @@ def render_overview_page(symbol: str, bundle: dict[str, object]) -> None:
                 },
                 {
                     "group": "Group 1",
-                    "experiment": "dqn_with_sector_peer_nlp",
-                    "description": "NLP is trained on same-sector peer news, excluding the target stock, then scores target news.",
+                    "experiment": "dqn_with_sector_sentiment_nlp",
+                    "description": "Sentiment NLP is trained on same-sector peer news, excluding the target stock, then scores target news.",
                 },
                 {
                     "group": "Group 2",
-                    "experiment": "dqn_with_marketwide_peer_nlp",
-                    "description": "NLP is trained on all available A-share peer news, excluding the target stock, then scores target news.",
+                    "experiment": "dqn_with_sector_impact_nlp",
+                    "description": "Impact NLP is trained on same-sector peer news labelled by peer post-news returns, excluding target labels.",
+                },
+                {
+                    "group": "Optional add-on",
+                    "experiment": "dqn_with_marketwide_sentiment_nlp / dqn_with_marketwide_impact_nlp",
+                    "description": "Only when selected: adds cross-sector marketwide peer sentiment and impact groups under the same DQN settings.",
                 },
             ]
         ),
@@ -1457,7 +1497,7 @@ def render_overview_page(symbol: str, bundle: dict[str, object]) -> None:
     render_status_badges(stock_status_rows(symbol, bundle))
     data = bundle.get("data", pd.DataFrame())
     sentiment = bundle.get("peer_daily", pd.DataFrame())
-    metrics = bundle.get("peer_metrics", pd.DataFrame())
+    metrics = bundle.get("market_impact_metrics", pd.DataFrame())
     cols = st.columns(4)
     cols[0].metric("Detected stocks", len(available_local_symbols()))
     cols[1].metric("Rows", len(data) if isinstance(data, pd.DataFrame) else 0)
@@ -2060,17 +2100,17 @@ def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]
 
     metrics = bundle.get("peer_metrics", pd.DataFrame())
     if isinstance(metrics, pd.DataFrame) and not metrics.empty:
-        st.markdown("#### Official Peer NLP Ablation Metrics")
+        st.markdown("#### Peer Sentiment Diagnostic Metrics")
         metrics = metrics.copy()
-        st.caption("每个 DQN group 展示同一套 8 个官方指标；seed/std/turnover 等诊断列仍保留在导出的 CSV。")
+        st.caption("这里保留 peer sentiment scorer 的诊断输出；正式 DQN ablation 以 Market Impact Analysis 中的 market_impact_ablation_metrics.csv 为准。")
         st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
         metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown"] if col in metrics.columns]
         if "experiment" in metrics.columns and metric_cols:
             chart_metrics = metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce")
-            render_multi_series(chart_metrics, title="Ablation metrics by official strategy", kind="bar", color_map=EXPERIMENT_COLORS, height=360)
-            st.caption("同一目标股票、同一训练/测试窗口、同一 DQN 设置下，比较是否加入 peer-trained NLP sentiment 后表现改善。")
+            render_multi_series(chart_metrics, title="Sentiment diagnostic metrics", kind="bar", color_map=EXPERIMENT_COLORS, height=360)
+            st.caption("这张表只说明 sentiment-only 诊断是否正常，不替代正式 sector sentiment/impact ablation。")
     else:
-        st.warning("`peer_nlp_ablation_metrics.csv` is missing for this stock.")
+        st.warning("`peer_nlp_ablation_metrics.csv` sentiment diagnostic output is missing for this stock.")
 
     curves = bundle.get("peer_curves", pd.DataFrame())
     if isinstance(curves, pd.DataFrame) and not curves.empty and {"date", "experiment", "portfolio_value"}.issubset(curves.columns):
@@ -2122,8 +2162,8 @@ def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]
 
 def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, object]) -> None:
     """Market-impact add-on result page for the selected held-out target stock."""
-    st.subheader("Market-Impact Add-on: Five-Group Comparison")
-    st.caption("Peer sentiment NLP 是基础实验；勾选 market-impact add-on 后，额外加入 sector impact 和 marketwide impact 两个 DQN groups。")
+    st.subheader("Official Sector Sentiment / Impact DQN Comparison")
+    st.caption("默认正式实验是 no-NLP、sector sentiment、sector impact；勾选 marketwide add-on 后再额外加入 marketwide sentiment 和 marketwide impact。")
     daily = bundle.get("market_impact_daily", pd.DataFrame())
     metrics = bundle.get("market_impact_metrics", pd.DataFrame())
     curves = bundle.get("market_impact_curves", pd.DataFrame())
@@ -2141,7 +2181,7 @@ def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, obje
     missing = [name for name, ok in required.items() if not ok]
     if missing:
         st.warning("Market-impact output is incomplete: " + ", ".join(missing))
-        st.caption("如果没有勾选 add-on，这是正常的；如果已勾选后仍缺文件，通常是旧缓存或中途异常留下的半成品，重新运行会先清理这些缓存。")
+        st.caption("请运行 target experiment 生成正式 sector-only ablation；marketwide rows 只有在勾选 add-on 后才会出现。")
         return
 
     daily = daily.copy()
@@ -2173,13 +2213,13 @@ def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, obje
         render_series_bar(daily, "date", "target_news_count", title="Target news count for impact scoring", color=PALETTE["amber"], height=300)
 
     st.markdown("#### Market-impact Ablation Metrics")
-    st.caption("主表展示五个 DQN group 的 8 个官方指标；buy-and-hold 只是 benchmark，不计入五组实验。")
+    st.caption("主表展示正式 DQN groups 的 8 个官方指标；buy-and-hold 只是 benchmark，不计入实验组。")
     st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
     metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades"] if col in metrics.columns]
     if "experiment" in metrics.columns and metric_cols:
         chart_metrics = metrics.copy()
         chart_metrics["experiment"] = chart_metrics["experiment"].astype(str).map(_display_experiment_name).fillna(chart_metrics["experiment"].astype(str))
-        render_multi_series(chart_metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce"), title="Five DQN groups plus buy-and-hold benchmark", kind="bar", color_map=_display_experiment_color_map(), height=380)
+        render_multi_series(chart_metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce"), title="Official DQN groups plus buy-and-hold benchmark", kind="bar", color_map=_display_experiment_color_map(), height=380)
 
     if {"date", "experiment", "portfolio_value"}.issubset(curves.columns):
         curves = curves.copy()
@@ -2187,13 +2227,13 @@ def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, obje
         curves["experiment"] = curves["experiment"].astype(str).map(_display_experiment_name).fillna(curves["experiment"].astype(str))
         curves["portfolio_value"] = pd.to_numeric(curves["portfolio_value"], errors="coerce")
         curve_frame = curves.pivot_table(index="date", columns="experiment", values="portfolio_value", aggfunc="mean")
-        render_multi_series(curve_frame, title="Five-group portfolio curves", kind="line", color_map=_display_experiment_color_map(), height=360)
+        render_multi_series(curve_frame, title="Official portfolio curves", kind="line", color_map=_display_experiment_color_map(), height=360)
 
     if {"experiment", "action"}.issubset(logs.columns):
         action_logs = logs.copy()
         action_logs["experiment"] = action_logs["experiment"].astype(str).map(_display_experiment_name).fillna(action_logs["experiment"].astype(str))
         action_frame = action_logs.groupby(["action", "experiment"]).size().unstack(fill_value=0)
-        render_multi_series(action_frame, title="Five-group Buy / Sell / Hold counts", kind="bar", color_map=_display_experiment_color_map(), height=320)
+        render_multi_series(action_frame, title="Official Buy / Sell / Hold counts", kind="bar", color_map=_display_experiment_color_map(), height=320)
 
     if isinstance(effect, pd.DataFrame) and not effect.empty:
         st.markdown("#### Market-impact Effect Summary")
@@ -2291,8 +2331,8 @@ def create_visual_report_html(
         (
             "<div class='note'>"
             "Official logic: the target stock is held out from NLP training. "
-            "Peer sentiment NLP is the base experiment. "
-            "When enabled, market-impact NLP is an add-on that contributes two additional DQN groups."
+            "Sector sentiment and sector impact are the default experiment. "
+            "When enabled, marketwide peer benchmarks contribute two additional DQN groups."
             "</div>"
         ),
         "<h2>Experiment Target</h2>",
@@ -2303,7 +2343,7 @@ def create_visual_report_html(
         f"<tr><th>Industry</th><td>{html.escape(str(info.get('industry', '-')))}</td></tr>"
         f"<tr><th>Completed symbols</th><td>{html.escape(', '.join(completed_symbols) if completed_symbols else 'none')}</td></tr>"
         f"<tr><th>Failed symbols</th><td>{len(failures)}</td></tr>"
-        f"<tr><th>Market-impact add-on</th><td>{'enabled' if market_impact_add_on else 'disabled'}</td></tr>"
+        f"<tr><th>Marketwide peer add-on</th><td>{'enabled' if market_impact_add_on else 'disabled'}</td></tr>"
         "</tbody></table>",
     ]
 
@@ -2311,9 +2351,10 @@ def create_visual_report_html(
     density = bundle.get("daily_density", pd.DataFrame())
     net_flow = bundle.get("daily_net_flow", pd.DataFrame())
     peer_daily = bundle.get("peer_daily", pd.DataFrame())
-    metrics = bundle.get("peer_metrics", pd.DataFrame())
-    curves = bundle.get("peer_curves", pd.DataFrame())
-    effect = bundle.get("peer_effect", pd.DataFrame())
+    metrics = bundle.get("market_impact_metrics", pd.DataFrame())
+    curves = bundle.get("market_impact_curves", pd.DataFrame())
+    effect = bundle.get("market_impact_effect", pd.DataFrame())
+    peer_metrics = bundle.get("peer_metrics", pd.DataFrame())
 
     html_parts.append("<h2>Single Stock Basics</h2>")
     first_chart = True
@@ -2349,15 +2390,18 @@ def create_visual_report_html(
         fig = go.Figure()
         for idx, column in enumerate(pivot.columns):
             fig.add_trace(go.Scatter(x=pivot.index, y=pivot[column], mode="lines", name=str(column), line={"color": EXPERIMENT_COLORS.get(str(column), SERIES_COLORS[idx % len(SERIES_COLORS)]), "width": 2.4}))
-        fig.update_layout(**_base_layout(title="Portfolio value comparison", height=360))
+        fig.update_layout(**_base_layout(title="Official sector sentiment/impact portfolio comparison", height=360))
         html_parts.append(_figure_to_html(fig, include_plotlyjs=first_chart))
         first_chart = False
     if isinstance(metrics, pd.DataFrame) and not metrics.empty:
-        html_parts.append("<h3>Peer NLP ablation metrics</h3>")
+        html_parts.append("<h3>Official sector sentiment/impact ablation metrics</h3>")
         html_parts.append(metrics.to_html(index=False, escape=True))
     if isinstance(effect, pd.DataFrame) and not effect.empty:
-        html_parts.append("<h3>Peer NLP effect summary</h3>")
+        html_parts.append("<h3>Official market-impact effect summary</h3>")
         html_parts.append(effect.to_html(index=False, escape=True))
+    if isinstance(peer_metrics, pd.DataFrame) and not peer_metrics.empty:
+        html_parts.append("<h3>Peer sentiment diagnostic metrics</h3>")
+        html_parts.append(peer_metrics.to_html(index=False, escape=True))
     if cross_payload:
         cross_summary = safe_read_csv(Path(str(cross_payload.get("summary_csv", ""))))
         if not cross_summary.empty:
@@ -2403,7 +2447,7 @@ def create_export_bundle(
         f"- Generated at: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`",
         f"- Completed stocks: `{', '.join(completed_symbols) if completed_symbols else 'none'}`",
         f"- Failed stocks: `{len(failures)}`",
-        f"- Market-impact add-on: `{'enabled' if market_impact_add_on else 'disabled'}`",
+        f"- Marketwide peer add-on: `{'enabled' if market_impact_add_on else 'disabled'}`",
         f"- DQN group count: `{'5' if market_impact_add_on else '3'}`",
         "",
         "## Completed Runs",
@@ -2415,7 +2459,7 @@ def create_export_bundle(
                 f"### {row.get('symbol', '-')}",
                 f"- Company: `{row.get('company_name', '-')}`",
                 f"- Status: `{row.get('status', '-')}`",
-                f"- Market-impact add-on: `{row.get('market_impact_add_on', market_impact_add_on)}`",
+                f"- Marketwide peer add-on: `{row.get('market_impact_add_on', market_impact_add_on)}`",
                 f"- DQN groups: `{row.get('dqn_groups', '5' if market_impact_add_on else '3')}`",
                 f"- Input CSV: `{row.get('input_csv', '-')}`",
                 f"- Reports: `{row.get('reports_dir', '-')}`",
@@ -2699,7 +2743,7 @@ def render_experiment_completion_notice(
     )
 
 
-def experiment_workflow_rows(market_impact_add_on: bool) -> pd.DataFrame:
+def experiment_workflow_rows(marketwide_add_on: bool) -> pd.DataFrame:
     rows = [
         {
             "阶段": "0. 运行前检查",
@@ -2715,31 +2759,29 @@ def experiment_workflow_rows(market_impact_add_on: bool) -> pd.DataFrame:
         },
         {
             "阶段": "2. Peer 数据准备",
-            "输入": "同板块、非目标股票 peers",
-            "动作": "自动识别同板块 peers，必要时补齐 peer 本地缓存。",
+            "输入": "同板块 peers；可选跨板块 marketwide peers",
+            "动作": "自动识别 sector peers；勾选 marketwide 时检查/补齐跨板块 peers。",
             "输出": "训练语料候选股票；target 已剔除",
         },
         {
             "阶段": "3. Peer 情绪信号",
             "输入": "Peer 新闻文本",
-            "动作": "固定基础实验：训练 peer sentiment scorer，再给目标股票新闻打分。",
-            "输出": "peer_nlp_daily_sentiment.csv；基础三组 DQN 的 NLP 输入",
+            "动作": "训练 sector sentiment scorer；勾选后额外训练 marketwide sentiment scorer。",
+            "输出": "peer_nlp_daily_sentiment.csv；sentiment DQN 输入",
+        },
+        {
+            "阶段": "4. Market-impact 信号",
+            "输入": "Peer 新闻 + peer 未来收益",
+            "动作": "用固定 horizon/threshold 给 peer 新闻贴 impact 标签；默认 sector impact，勾选后额外 marketwide impact。",
+            "输出": "peer_market_impact_daily_signal.csv；impact DQN 输入",
         },
     ]
-    if market_impact_add_on:
-        rows.append(
-            {
-                "阶段": "4. 可选 Market-impact add-on",
-                "输入": "Peer 新闻 + peer 未来收益",
-                "动作": "勾选后额外运行：用未来收益给 peer 新闻贴 impact 标签，训练 impact 模型，再给目标新闻打分。",
-                "输出": "peer_market_impact_daily_signal.csv；额外两组 impact DQN 的 NLP 输入",
-            }
-        )
+    if marketwide_add_on:
         rows.append(
             {
                 "阶段": "5. DQN 训练/评估",
                 "输入": "行情特征 + sentiment / impact 信号",
-                "动作": "五组 DQN 对比：no-NLP、sector sentiment、marketwide sentiment、sector impact、marketwide impact。",
+                "动作": "五组 DQN 对比：no-NLP、sector sentiment、sector impact、marketwide sentiment、marketwide impact。",
                 "输出": "market_impact_ablation_metrics.csv 和 portfolio curves；buy_and_hold 仅作 benchmark",
             }
         )
@@ -2747,9 +2789,9 @@ def experiment_workflow_rows(market_impact_add_on: bool) -> pd.DataFrame:
         rows.append(
             {
                 "阶段": "5. DQN 训练/评估",
-                "输入": "行情特征 + peer sentiment 信号",
-                "动作": "基础三组 DQN 对比：no-NLP、sector peer sentiment、marketwide peer sentiment。",
-                "输出": "peer_nlp_ablation_metrics.csv 和 portfolio curves；buy_and_hold 仅作 benchmark",
+                "输入": "行情特征 + sector sentiment / sector impact 信号",
+                "动作": "sector-only 三组 DQN 对比：no-NLP、sector sentiment、sector impact。",
+                "输出": "market_impact_ablation_metrics.csv 和 portfolio curves；buy_and_hold 仅作 benchmark",
             }
         )
     rows.append(
@@ -2781,11 +2823,11 @@ def render_experiment_workflow_overview(
     summary_cols[2].metric("板块", str(target_info.get("sector", "UNKNOWN")))
     summary_cols[3].metric("训练 peers", int(len(training_peer_preview)))
 
-    st.caption("Peer sentiment NLP 是固定基础实验。Market-impact 是可选 add-on；target 始终是唯一 held-out 股票，不进入 peer corpus。")
+    st.caption("Sector sentiment + sector impact 是默认正式实验。Marketwide sentiment/impact 是可选 benchmark；target 始终是唯一 held-out 股票，不进入 peer corpus。")
     st.dataframe(experiment_workflow_rows(market_impact_add_on), use_container_width=True, hide_index=True)
 
     if market_impact_add_on:
-        with st.expander("本次 Market-impact 标签规则", expanded=False):
+        with st.expander("固定 Market-impact 标签规则", expanded=False):
             label_rows = pd.DataFrame(
                 [
                     {"参数": "Impact horizon days", "值": market_impact_horizon_days, "含义": "新闻后向未来看多少个交易日的收益。"},
@@ -2904,7 +2946,7 @@ default_symbol = existing_stock_dirs[-1].name if existing_stock_dirs else settin
 default_company, default_company_source = resolve_company_name(default_symbol, "")
 
 st.sidebar.header("Peer NLP Experiment")
-st.sidebar.caption("当前 dashboard 固定运行 held-out peer sentiment transfer；market-impact 是可选 add-on。")
+st.sidebar.caption("当前 dashboard 固定运行 sector-only sentiment/impact 实验；marketwide groups 是可选 benchmark。")
 if "dashboard_target_symbol" not in st.session_state:
     st.session_state["dashboard_target_symbol"] = default_symbol
 symbol_input = st.sidebar.text_input("Experiment target symbol", key="dashboard_target_symbol")
@@ -2927,24 +2969,20 @@ sources = st.sidebar.text_input("Data source priority", value="tencent")
 news_count = int(st.sidebar.number_input("News cap", min_value=0, value=5000, step=100))
 episodes = int(st.sidebar.number_input("DQN episodes", min_value=1, value=200, step=10))
 
-run_market_impact_nlp = st.sidebar.checkbox(
-    "Add market-impact NLP groups",
+add_marketwide_peer_groups = st.sidebar.checkbox(
+    "Add marketwide peer benchmark groups",
     value=False,
     help=(
-        "Peer sentiment NLP is always the base experiment. "
-        "When selected, the run adds sector-impact and marketwide-impact DQN groups for a five-group DQN comparison."
+        "Default sector-only experiment runs no-NLP, sector sentiment, and sector impact. "
+        "When selected, the run additionally includes marketwide sentiment and marketwide impact benchmark groups."
     ),
 )
-experiment_label = "peer sentiment NLP + market-impact add-on" if run_market_impact_nlp else "peer sentiment NLP"
-dqn_group_count = 5 if run_market_impact_nlp else 3
-market_impact_horizon_days = 3
-market_impact_pos_threshold = 0.015
-market_impact_neg_threshold = -0.015
-if run_market_impact_nlp:
-    with st.sidebar.expander("Market-impact label settings", expanded=False):
-        market_impact_horizon_days = int(st.number_input("Impact horizon days", min_value=1, max_value=20, value=3, step=1))
-        market_impact_pos_threshold = float(st.number_input("Positive return threshold", min_value=0.0, value=0.015, step=0.005, format="%.3f"))
-        market_impact_neg_threshold = float(st.number_input("Negative return threshold", max_value=0.0, value=-0.015, step=0.005, format="%.3f"))
+run_market_impact_nlp = True
+experiment_label = "sector + marketwide peer NLP benchmark" if add_marketwide_peer_groups else "sector-only peer sentiment/impact NLP"
+dqn_group_count = 5 if add_marketwide_peer_groups else 3
+market_impact_horizon_days = int(settings.market_impact_horizon_days)
+market_impact_pos_threshold = float(settings.market_impact_pos_threshold)
+market_impact_neg_threshold = float(settings.market_impact_neg_threshold)
 
 run_peer_nlp_experiment = True
 run_legacy_stock_level_nlp = False
@@ -2960,7 +2998,7 @@ run_cross_pipeline = True
 run_cross_existing_only = False
 run_cross_preflight_only = False
 supplement_sector_peers = True
-st.sidebar.caption(f"Fixed run options: target data cache is reused/updated automatically; same-sector peers are supplemented before the {experiment_label} experiment; SQLite persistence is enabled and legacy stock-level NLP is disabled.")
+st.sidebar.caption(f"Fixed run options: target data cache is reused/updated automatically; sector peers are supplemented before the {experiment_label} experiment; market-impact label parameters are fixed; SQLite persistence is enabled and legacy stock-level NLP is disabled.")
 st.sidebar.caption(f"DQN comparison groups: {dqn_group_count} DQN groups; buy-and-hold remains a benchmark only.")
 
 target_sector_peers = same_sector_symbols(primary_symbol, include_target=False)
@@ -3024,7 +3062,7 @@ render_experiment_workflow_overview(
     resolved_company=resolved_company,
     target_info=target_info,
     training_peer_preview=training_peer_preview,
-    market_impact_add_on=run_market_impact_nlp,
+    market_impact_add_on=add_marketwide_peer_groups,
     market_impact_horizon_days=market_impact_horizon_days,
     market_impact_pos_threshold=market_impact_pos_threshold,
     market_impact_neg_threshold=market_impact_neg_threshold,
@@ -3053,7 +3091,7 @@ if run_clicked:
                     "input_csv": "-",
                     "reports_dir": str(stock_reports_dir(symbol)),
                     "results_dir": str(stock_results_dir(symbol)),
-                    "market_impact_add_on": run_market_impact_nlp,
+                    "market_impact_add_on": add_marketwide_peer_groups,
                     "dqn_groups": dqn_group_count,
                 }
             )
@@ -3080,7 +3118,7 @@ if run_clicked:
             [],
             None,
             target_symbol=primary_symbol,
-            market_impact_add_on=run_market_impact_nlp,
+            market_impact_add_on=add_marketwide_peer_groups,
         )
         rerun_dashboard()
 
@@ -3123,7 +3161,7 @@ if run_clicked:
                     "input_csv": str(latest_non_master_csv(symbol) or "-"),
                     "reports_dir": str(stock_reports_dir(symbol)),
                     "results_dir": str(stock_results_dir(symbol)),
-                    "market_impact_add_on": run_market_impact_nlp,
+                    "market_impact_add_on": add_marketwide_peer_groups,
                     "dqn_groups": dqn_group_count,
                 }
             )
@@ -3151,7 +3189,7 @@ if run_clicked:
             failures,
             cross_payload,
             target_symbol=primary_symbol,
-            market_impact_add_on=run_market_impact_nlp,
+            market_impact_add_on=add_marketwide_peer_groups,
         )
         rerun_dashboard()
 
@@ -3263,7 +3301,7 @@ if run_clicked:
             row["last_update"] = datetime.now().strftime("%H:%M:%S")
             row["message"] = blocked_symbols[symbol]
             failures.append({"symbol": symbol, "error": blocked_symbols[symbol], "traceback": ""})
-            run_rows.append({"symbol": symbol, "company_name": company, "status": "skipped", "input_csv": "-", "reports_dir": "-", "results_dir": "-", "market_impact_add_on": run_market_impact_nlp, "dqn_groups": dqn_group_count})
+            run_rows.append({"symbol": symbol, "company_name": company, "status": "skipped", "input_csv": "-", "reports_dir": "-", "results_dir": "-", "market_impact_add_on": add_marketwide_peer_groups, "dqn_groups": dqn_group_count})
             progress.progress(index / max(len(symbols_to_run), 1))
             render_live_status_table(status_rows, live_status_box)
             continue
@@ -3397,6 +3435,7 @@ if run_clicked:
                 run_peer_nlp_experiment=run_peer_nlp_experiment,
                 run_legacy_stock_level_nlp=run_legacy_stock_level_nlp,
                 allow_fetch_missing_sector_peers=allow_fetch_missing_sector_peers,
+                include_marketwide_peer=add_marketwide_peer_groups,
                 run_market_impact_nlp=run_market_impact_nlp,
                 market_impact_horizon_days=market_impact_horizon_days,
                 market_impact_pos_threshold=market_impact_pos_threshold,
@@ -3411,7 +3450,7 @@ if run_clicked:
                     "input_csv": summary["input_csv"],
                     "reports_dir": summary["reports_dir"],
                     "results_dir": summary["results_dir"],
-                    "market_impact_add_on": run_market_impact_nlp,
+                    "market_impact_add_on": add_marketwide_peer_groups,
                     "dqn_groups": dqn_group_count,
                 }
             )
@@ -3421,7 +3460,7 @@ if run_clicked:
             row["message"] = "Completed successfully"
         except Exception as exc:
             failures.append({"symbol": symbol, "error": str(exc), "traceback": traceback.format_exc(limit=8)})
-            run_rows.append({"symbol": symbol, "company_name": company, "status": "failed", "input_csv": "-", "reports_dir": "-", "results_dir": "-", "market_impact_add_on": run_market_impact_nlp, "dqn_groups": dqn_group_count})
+            run_rows.append({"symbol": symbol, "company_name": company, "status": "failed", "input_csv": "-", "reports_dir": "-", "results_dir": "-", "market_impact_add_on": add_marketwide_peer_groups, "dqn_groups": dqn_group_count})
             row["status"] = "failed"
             row["stage"] = "error"
             row["last_update"] = datetime.now().strftime("%H:%M:%S")
@@ -3468,7 +3507,7 @@ if run_clicked:
         cross_payload,
         target_symbol=primary_symbol,
         market_cross_payload=market_cross_payload,
-        market_impact_add_on=run_market_impact_nlp,
+        market_impact_add_on=add_marketwide_peer_groups,
     )
 
 st.subheader("Target Experiment Run Status")
@@ -3481,15 +3520,13 @@ workflow_phase_logs = st.session_state.get("workflow_phase_logs", [])
 workflow_status_rows = st.session_state.get("workflow_status_rows", [])
 training_status_rows = st.session_state.get("training_status_rows", [])
 workflow_export_bundle = st.session_state.get("workflow_export_bundle")
-workflow_market_impact_add_on = bool(market_cross_payload) or any(
-    truthy_flag(row.get("market_impact_add_on", False)) for row in workflow_runs if isinstance(row, dict)
-)
+workflow_has_official_market_impact = bool(workflow_runs)
 
 render_experiment_completion_notice(
     workflow_runs,
     workflow_failures,
     completed_symbols,
-    include_market_impact=workflow_market_impact_add_on,
+    include_market_impact=workflow_has_official_market_impact,
 )
 
 if training_status_rows:

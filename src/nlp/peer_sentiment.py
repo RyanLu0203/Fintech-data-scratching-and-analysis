@@ -20,7 +20,7 @@ import pandas as pd
 
 from src.config.paths import PROJECT_ROOT, STOCK_OUTPUT_ROOT, stock_data_dir, stock_reports_dir, stock_results_dir
 from src.data_ingestion.ingestion import IngestionConfig, fetch_market_data, run_ingestion
-from src.evaluation.information_density import define_experiment_window, detect_information_density_split
+from src.evaluation.information_density import build_daily_news_density, define_experiment_window, detect_information_density_split
 from src.nlp.aggregate_sentiment import align_news_to_trading_dates, build_news_frame
 from src.nlp.finbert_sentiment import FinBERTSentiment
 from src.nlp.lexicon_sentiment import score_texts
@@ -33,6 +33,9 @@ DATA_END_DATE = "2026-04-30"
 MIN_SECTOR_PEER_STOCKS = 4
 MIN_SECTOR_TRAINING_NEWS = 1000
 MIN_MARKETWIDE_TRAINING_NEWS = 3000
+MIN_MARKETWIDE_PEER_STOCKS = 12
+MIN_MARKETWIDE_PEER_SECTORS = 4
+MAX_MARKETWIDE_FETCH_PER_NON_TARGET_SECTOR = 2
 MIN_HIGH_DENSITY_TRADING_DAYS = 30
 MIN_TARGET_SENTIMENT_COVERAGE = 0.50
 
@@ -154,6 +157,24 @@ def build_peer_nlp_corpora(
     else:
         fetched_symbols: list[str] = []
 
+    marketwide_fetched_symbols: list[str] = []
+    if include_marketwide_peer and allow_fetch_missing_sector_peers and not _marketwide_scope_ready(market_peers, target_sector):
+        marketwide_fetched_symbols = _fetch_missing_configured_marketwide_peers(
+            mapping,
+            target_symbol=symbol,
+            target_sector=target_sector,
+            sources=sources,
+            news_count=news_count,
+            status_callback=status_callback,
+        )
+        if marketwide_fetched_symbols:
+            mapping = build_stock_sector_mapping(stock_root=stock_root)
+            usable = mapping[mapping["usable_for_sector_corpus"].astype(bool)].copy()
+            sector_peers = usable[(usable["sector"].astype(str) == target_sector) & (usable["symbol"].astype(str) != symbol)]
+            market_peers = usable[usable["symbol"].astype(str) != symbol]
+            if not include_marketwide_peer:
+                market_peers = market_peers.iloc[0:0].copy()
+
     sector_frame, sector_included = _collect_peer_news(
         sector_peers["symbol"].astype(str).tolist(),
         mapping,
@@ -186,6 +207,9 @@ def build_peer_nlp_corpora(
     if not include_marketwide_peer:
         market_status = "DISABLED"
         market_reason = "marketwide_peer_disabled_by_dashboard_scope"
+    elif not _marketwide_scope_ready(pd.DataFrame({"symbol": market_included}).merge(mapping[["symbol", "sector"]], on="symbol", how="left"), target_sector):
+        market_status = "INSUFFICIENT"
+        market_reason = f"marketwide_scope_requires_{MIN_MARKETWIDE_PEER_STOCKS}_peers_and_{MIN_MARKETWIDE_PEER_SECTORS}_sectors"
     elif len(market_frame) < MIN_MARKETWIDE_TRAINING_NEWS:
         market_status = "INSUFFICIENT"
         market_reason = f"marketwide_training_news_below_{MIN_MARKETWIDE_TRAINING_NEWS}"
@@ -215,7 +239,7 @@ def build_peer_nlp_corpora(
         market_frame,
         market_status,
         market_reason,
-        fetched_symbols,
+        fetched_symbols + marketwide_fetched_symbols,
     )
     _save_corpus_summary([sector_summary, market_summary])
 
@@ -368,6 +392,11 @@ def generate_peer_nlp_daily_sentiment(
     daily["marketwide_news_count_used_for_training"] = int(market_corpus.summary.get("total_news_count", 0))
     daily["sector_peer_stock_count"] = int(sector_corpus.summary.get("number_of_peer_stocks", 0))
     daily["marketwide_peer_stock_count"] = int(market_corpus.summary.get("number_of_peer_stocks", 0))
+    daily["sector_peer_sector_count"] = int(sector_corpus.summary.get("peer_sector_count", 0))
+    daily["marketwide_peer_sector_count"] = int(market_corpus.summary.get("peer_sector_count", 0))
+    daily["marketwide_distinct_from_sector"] = int(bool(market_corpus.summary.get("marketwide_distinct_from_sector", False)))
+    daily["peer_corpus_scope"] = "sector_plus_marketwide" if include_marketwide_peer else "sector_only"
+    daily["marketwide_enabled"] = int(bool(include_marketwide_peer))
     daily["sector_sentiment_method"] = sector_method
     daily["marketwide_sentiment_method"] = market_method
     daily["sector_corpus_status"] = sector_corpus.summary.get("corpus_status", "INSUFFICIENT")
@@ -384,10 +413,18 @@ def generate_peer_nlp_daily_sentiment(
     item_path = results_dir / "peer_nlp_item_sentiment.csv"
     window_path = reports_dir / "peer_nlp_experiment_window.csv"
     split_path = reports_dir / "peer_nlp_information_density_split.csv"
+    canonical_split_path = reports_dir / "information_density_split.csv"
+    daily_density_path = reports_dir / "daily_news_density.csv"
+    daily_density = build_daily_news_density(market, split_news)
+    if not daily_density.empty and split.get("density_cutoff_date"):
+        cutoff = pd.to_datetime(split["density_cutoff_date"], errors="coerce")
+        daily_density["is_high_density_window"] = daily_density["date"] >= cutoff
     daily.to_csv(output_path, index=False, encoding="utf-8-sig")
     scored.to_csv(item_path, index=False, encoding="utf-8-sig")
     pd.DataFrame([window]).to_csv(window_path, index=False, encoding="utf-8-sig")
     pd.DataFrame([split]).to_csv(split_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame([split]).to_csv(canonical_split_path, index=False, encoding="utf-8-sig")
+    daily_density.to_csv(daily_density_path, index=False, encoding="utf-8-sig")
     emit("peer_nlp_sentiment_saved", f"{symbol}: saved peer_nlp_daily_sentiment.csv and item-level peer sentiment outputs.")
 
     return {
@@ -521,6 +558,97 @@ def _fetch_missing_configured_sector_peers(
     return fetched
 
 
+def _marketwide_scope_ready(peers: pd.DataFrame, target_sector: str) -> bool:
+    if peers.empty or not {"symbol", "sector"}.issubset(peers.columns):
+        return False
+    frame = peers.copy()
+    frame["symbol"] = frame["symbol"].astype(str).map(_normalize_symbol)
+    frame["sector"] = frame["sector"].astype(str)
+    valid = frame[(frame["symbol"].str.fullmatch(r"\d{6}", na=False)) & (frame["sector"].str.upper() != "UNKNOWN")]
+    peer_count = int(valid["symbol"].nunique())
+    sector_count = int(valid["sector"].nunique())
+    has_cross_sector = bool((valid["sector"] != str(target_sector)).any())
+    return peer_count >= MIN_MARKETWIDE_PEER_STOCKS and sector_count >= MIN_MARKETWIDE_PEER_SECTORS and has_cross_sector
+
+
+def _fetch_missing_configured_marketwide_peers(
+    mapping: pd.DataFrame,
+    *,
+    target_symbol: str,
+    target_sector: str,
+    sources: str,
+    news_count: int,
+    status_callback: Callable[[str, str], None] | None = None,
+) -> list[str]:
+    configured = mapping.copy()
+    configured["symbol"] = configured["symbol"].astype(str).map(_normalize_symbol)
+    configured["sector"] = configured["sector"].astype(str)
+    existing = configured[
+        (configured["local_data_available"].astype(bool))
+        & (configured["symbol"] != target_symbol)
+        & (configured["sector"].str.upper() != "UNKNOWN")
+    ].copy()
+    if _marketwide_scope_ready(existing, target_sector):
+        return []
+
+    missing = configured[
+        (~configured["local_data_available"].astype(bool))
+        & (configured["symbol"] != target_symbol)
+        & (configured["sector"].str.upper() != "UNKNOWN")
+        & (configured["sector"] != str(target_sector))
+    ].copy()
+    if missing.empty:
+        return []
+
+    fetched: list[str] = []
+    planned_by_sector: dict[str, int] = {}
+    sectors = sorted(missing["sector"].dropna().astype(str).unique().tolist())
+    for sector in sectors:
+        sector_rows = missing[missing["sector"].astype(str) == sector].head(MAX_MARKETWIDE_FETCH_PER_NON_TARGET_SECTOR)
+        for _, row in sector_rows.iterrows():
+            combined = pd.concat(
+                [
+                    existing[["symbol", "sector"]],
+                    missing[missing["symbol"].isin(fetched)][["symbol", "sector"]],
+                ],
+                ignore_index=True,
+            )
+            if _marketwide_scope_ready(combined, target_sector):
+                return fetched
+            if planned_by_sector.get(sector, 0) >= MAX_MARKETWIDE_FETCH_PER_NON_TARGET_SECTOR:
+                continue
+            symbol = _normalize_symbol(str(row.get("symbol", "")))
+            company = str(row.get("company_name", "") or symbol)
+            if not re.fullmatch(r"\d{6}", symbol):
+                continue
+            try:
+                if status_callback is not None:
+                    status_callback("peer_nlp_peer_processing", f"marketwide_peer: fetching cross-sector peer {symbol} {company} ({sector}).")
+                LOGGER.info("Fetching missing marketwide peer %s %s for sector %s.", symbol, company, sector)
+                run_ingestion(
+                    IngestionConfig(
+                        symbol=symbol,
+                        company_name=company,
+                        start_date=DATA_START_DATE,
+                        end_date=DATA_END_DATE,
+                        sources=sources,
+                        news_count=news_count,
+                        reuse_existing_csv=True,
+                        require_news=False,
+                        use_sqlite=False,
+                    )
+                )
+                fetched.append(symbol)
+                planned_by_sector[sector] = planned_by_sector.get(sector, 0) + 1
+                if status_callback is not None:
+                    status_callback("peer_nlp_peer_processed", f"marketwide_peer: fetched cross-sector peer {symbol} {company}.")
+            except Exception as exc:
+                if status_callback is not None:
+                    status_callback("peer_nlp_peer_skipped", f"marketwide_peer: failed to fetch {symbol} {company}; {exc}")
+                LOGGER.warning("Failed to fetch configured marketwide peer %s %s: %s", symbol, company, exc)
+    return fetched
+
+
 def _select_high_density_news(symbol: str, market: pd.DataFrame, news: pd.DataFrame) -> pd.DataFrame:
     if news.empty:
         return news
@@ -571,6 +699,8 @@ def _corpus_summary_row(
     fetched_symbols: list[str],
 ) -> dict[str, object]:
     dates = pd.to_datetime(frame["date"], errors="coerce").dropna() if not frame.empty and "date" in frame.columns else pd.Series(dtype="datetime64[ns]")
+    peer_sectors = sorted(frame.get("peer_sector", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()) if not frame.empty and "peer_sector" in frame.columns else []
+    is_marketwide = corpus_type == "marketwide_peer"
     return {
         "target_symbol": target_symbol,
         "target_company_name": target_company,
@@ -579,10 +709,14 @@ def _corpus_summary_row(
         "included_symbols": ",".join(included_symbols),
         "excluded_symbols": ",".join(excluded_symbols),
         "number_of_peer_stocks": int(len(included_symbols)),
+        "peer_sector_count": int(len(peer_sectors)),
+        "peer_sectors": ",".join(peer_sectors),
         "total_news_count": int(len(frame)),
         "date_start": _date_text(dates.min()) if not dates.empty else "",
         "date_end": _date_text(dates.max()) if not dates.empty else "",
         "high_density_only": True,
+        "corpus_scope": "sector_plus_marketwide" if is_marketwide and included_symbols else "sector_only",
+        "marketwide_distinct_from_sector": bool(is_marketwide and any(sector != str(target_sector) for sector in peer_sectors)),
         "corpus_status": status,
         "reason_if_not_ready": reason,
         "newly_fetched_symbols": ",".join(fetched_symbols),

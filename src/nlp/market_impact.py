@@ -208,6 +208,11 @@ def generate_peer_market_impact_daily_signal(
     daily["marketwide_impact_corpus_status"] = market_model.status
     daily["sector_impact_training_news_count"] = int(len(sector_model.labelled_frame))
     daily["marketwide_impact_training_news_count"] = int(len(market_model.labelled_frame))
+    daily["sector_peer_stock_count"] = int(sector_corpus.summary.get("number_of_peer_stocks", 0))
+    daily["marketwide_peer_stock_count"] = int(market_corpus.summary.get("number_of_peer_stocks", 0))
+    daily["sector_peer_sector_count"] = int(sector_corpus.summary.get("peer_sector_count", 0))
+    daily["marketwide_peer_sector_count"] = int(market_corpus.summary.get("peer_sector_count", 0))
+    daily["marketwide_distinct_from_sector"] = int(bool(market_corpus.summary.get("marketwide_distinct_from_sector", False)))
     daily["impact_horizon_days"] = int(horizon_days)
     daily["positive_threshold"] = float(positive_threshold)
     daily["negative_threshold"] = float(negative_threshold)

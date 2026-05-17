@@ -383,7 +383,7 @@ def run_pipeline_for_symbol(
             if use_sqlite:
                 _persist_peer_outputs_to_sqlite(symbol, peer_outputs, sqlite_path)
         if run_market_impact_nlp:
-            emit("market_impact_nlp", f"Running peer market-impact NLP add-on groups for {symbol}.")
+            emit("market_impact_nlp", f"Running official sector sentiment/impact DQN comparison for {symbol}.")
             market_impact_outputs = run_market_impact_official_experiment(
                 input_csv=input_csv,
                 symbol=symbol,
@@ -520,14 +520,17 @@ def run_pipeline_for_symbol(
         "high_density_ablation_metrics_csv": str(results_dir / "high_density_ablation_metrics.csv"),
         "high_density_portfolio_curves_csv": str(results_dir / "high_density_portfolio_curves.csv"),
         "official_current_experiment": (
-            "peer_sentiment_plus_market_impact"
+            "sector_sentiment_impact_plus_marketwide"
+            if run_market_impact_nlp and include_marketwide_peer
+            else "sector_sentiment_impact"
             if run_market_impact_nlp
             else "peer_sector_nlp_transfer"
             if run_peer_nlp_experiment
             else "legacy_stock_level_nlp"
         ),
-        "market_impact_add_on": bool(run_market_impact_nlp),
-        "dqn_group_count": 5 if run_market_impact_nlp else 3 if run_peer_nlp_experiment else 2,
+        "market_impact_add_on": bool(include_marketwide_peer),
+        "marketwide_peer_add_on": bool(include_marketwide_peer),
+        "dqn_group_count": 5 if (run_market_impact_nlp and include_marketwide_peer) else 3 if run_market_impact_nlp else 3 if run_peer_nlp_experiment else 2,
         "peer_nlp_daily_sentiment_csv": str(results_dir / "peer_nlp_daily_sentiment.csv"),
         "peer_nlp_ablation_metrics_csv": str(results_dir / "peer_nlp_ablation_metrics.csv"),
         "peer_nlp_portfolio_curves_csv": str(results_dir / "peer_nlp_portfolio_curves.csv"),
