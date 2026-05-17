@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pandas as pd
 
-from src.rl.train import build_state_scaler, normalize_state
+from src.rl.train import build_state_scaler, evaluate_agent, normalize_state
 
 
 def test_state_scaler_keeps_cash_and_position_from_dominating_dqn_inputs() -> None:
@@ -28,3 +30,7 @@ def test_state_scaler_keeps_cash_and_position_from_dominating_dqn_inputs() -> No
     assert normalized[columns.index("position")] == 0.0
     assert np.isfinite(normalized).all()
     assert abs(normalized[columns.index("cash")]) < 5
+
+
+def test_evaluate_agent_accepts_training_state_scaler() -> None:
+    assert "state_scaler" in inspect.signature(evaluate_agent).parameters

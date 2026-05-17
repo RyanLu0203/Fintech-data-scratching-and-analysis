@@ -26,6 +26,8 @@ def test_dashboard_uses_market_impact_checkbox_add_on_copy() -> None:
     assert "Market-Impact Add-on: Five-Group Comparison" in source
     assert "CORE_EXPERIMENT_METRICS" in source
     assert "buy-and-hold 只是 benchmark" in source
+    assert '"src.rl.train"' in source
+    assert '"state_scaler" not in inspect.signature(rl_train_module.evaluate_agent).parameters' in source
 
 
 def test_pipeline_summary_names_market_impact_as_add_on() -> None:

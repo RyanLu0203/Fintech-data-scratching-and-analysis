@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import html
 import importlib
+import inspect
 import json
 import shutil
 import sys
@@ -436,12 +437,20 @@ def render_scatter(
 
 def get_pipeline_runner():
     for module_name in [
+        "src.rl.train",
+        "src.evaluation.ablation",
         "src.nlp.peer_sentiment",
+        "src.nlp.market_impact",
         "src.evaluation.peer_nlp_ablation",
+        "src.evaluation.market_impact_ablation",
         "main",
     ]:
         module = importlib.import_module(module_name)
         importlib.reload(module)
+    rl_train_module = importlib.import_module("src.rl.train")
+    if "state_scaler" not in inspect.signature(rl_train_module.evaluate_agent).parameters:
+        st.error("Dashboard runtime is using a stale DQN module. Restart Streamlit so src.rl.train.evaluate_agent reloads with state_scaler support.")
+        st.stop()
     main_module = importlib.import_module("main")
     return main_module.run_pipeline_for_symbol
 
