@@ -39,22 +39,30 @@ st.caption("支持 held-out target stock + peer sentiment NLP / market-impact NL
 
 
 PALETTE = {
-    "ink": "#3f3157",
-    "plum": "#604771",
-    "lavender": "#846992",
-    "rose": "#995a70",
-    "mauve": "#d5bfc2",
-    "cream": "#e7d5be",
+    "ink": "#243040",
+    "muted": "#687084",
+    "blue": "#2563eb",
+    "teal": "#0f9f8f",
+    "amber": "#d97706",
+    "rose": "#e11d48",
+    "purple": "#7c3aed",
+    "green": "#16a34a",
+    "slate": "#e5e9f0",
+    "soft": "#f7f9fc",
     "white": "#ffffff",
-    "grid": "rgba(231, 213, 190, 0.55)",
+    "grid": "rgba(104, 112, 132, 0.22)",
 }
-SERIES_COLORS = [PALETTE["ink"], PALETTE["plum"], PALETTE["lavender"], PALETTE["rose"]]
+SERIES_COLORS = [PALETTE["blue"], PALETTE["teal"], PALETTE["amber"], PALETTE["rose"], PALETTE["purple"], PALETTE["green"]]
 EXPERIMENT_COLORS = {
     "buy_and_hold": PALETTE["ink"],
-    "dqn_without_nlp": PALETTE["plum"],
+    "dqn_without_nlp": PALETTE["blue"],
     "dqn_with_nlp": PALETTE["rose"],
-    "dqn_with_sector_peer_nlp": PALETTE["lavender"],
-    "dqn_with_marketwide_peer_nlp": PALETTE["rose"],
+    "dqn_with_sector_peer_nlp": PALETTE["teal"],
+    "dqn_with_marketwide_peer_nlp": PALETTE["amber"],
+    "dqn_with_sector_sentiment_nlp": PALETTE["teal"],
+    "dqn_with_marketwide_sentiment_nlp": PALETTE["amber"],
+    "dqn_with_sector_impact_nlp": PALETTE["purple"],
+    "dqn_with_marketwide_impact_nlp": PALETTE["rose"],
 }
 CONSUMER_ELECTRONICS_EXAMPLE_SYMBOLS = ["002475", "002241", "300433", "300136", "601138", "601231"]
 CONSUMER_ELECTRONICS_EXAMPLE_LABEL = "Consumer electronics example: Luxshare / GoerTek / Lens / Sunway / FII / USI"
@@ -75,6 +83,7 @@ OFFICIAL_STOCK_RESULT_FILES = [
     "peer_nlp_training_rewards_all_seeds.csv",
     "peer_nlp_effect_summary.csv",
     "peer_market_impact_daily_signal.csv",
+    "peer_market_impact_item_signal.csv",
     "market_impact_ablation_metrics.csv",
     "market_impact_ablation_metrics_by_seed.csv",
     "market_impact_portfolio_curves.csv",
@@ -90,6 +99,7 @@ OFFICIAL_STOCK_REPORT_FILES = [
     "peer_nlp_leakage_diagnostics.csv",
     "peer_nlp_report_section.md",
     "peer_nlp_state_vector_compliance.csv",
+    "peer_nlp_group_state_diagnostics.csv",
     "peer_nlp_train_eval_windows.csv",
     "market_impact_state_vector_compliance.csv",
     "market_impact_group_state_diagnostics.csv",
@@ -97,8 +107,12 @@ OFFICIAL_STOCK_REPORT_FILES = [
     "market_impact_train_eval_windows.csv",
     "market_impact_reliability_check.csv",
     "market_impact_report_section.md",
+    "market_impact_experiment_window.csv",
 ]
 OFFICIAL_SYSTEM_FILES = [
+    SYSTEM_OUTPUT_DIR / "latest_peer_nlp_run_status.json",
+    SYSTEM_OUTPUT_DIR / "latest_peer_nlp_run_log.csv",
+    SYSTEM_OUTPUT_DIR / "latest_peer_nlp_peer_corpus_log.csv",
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_summary.csv",
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_diagnostics.csv",
     SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_discussion.md",
@@ -134,29 +148,32 @@ def apply_dashboard_theme() -> None:
             color: {PALETTE["ink"]};
         }}
         .stButton > button, .stDownloadButton > button {{
-            background: {PALETTE["ink"]};
-            color: white;
-            border: 1px solid {PALETTE["ink"]};
+            background: transparent;
+            color: {PALETTE["blue"]};
+            border: 1px solid rgba(37, 99, 235, 0.34);
             border-radius: 8px;
+            box-shadow: none;
         }}
         .stButton > button:hover, .stDownloadButton > button:hover {{
-            background: {PALETTE["plum"]};
-            border-color: {PALETTE["plum"]};
-            color: white;
+            background: rgba(37, 99, 235, 0.08);
+            border-color: {PALETTE["blue"]};
+            color: {PALETTE["blue"]};
         }}
         button[kind="primary"] {{
-            background: {PALETTE["rose"]} !important;
-            border-color: {PALETTE["rose"]} !important;
+            background: transparent !important;
+            color: {PALETTE["rose"]} !important;
+            border-color: rgba(225, 29, 72, 0.42) !important;
         }}
         button[kind="primary"]:hover {{
-            background: {PALETTE["plum"]} !important;
-            border-color: {PALETTE["plum"]} !important;
+            background: rgba(225, 29, 72, 0.08) !important;
+            border-color: {PALETTE["rose"]} !important;
+            color: {PALETTE["rose"]} !important;
         }}
         [data-baseweb="tab-list"] {{
             gap: 0.35rem;
         }}
         [data-baseweb="tab"] {{
-            color: {PALETTE["plum"]};
+            color: {PALETTE["muted"]};
             border-radius: 8px 8px 0 0;
             padding: 0.5rem 0.8rem;
         }}
@@ -171,6 +188,20 @@ def apply_dashboard_theme() -> None:
         [data-testid="stDataFrame"] {{
             border: 1px solid rgba(63, 49, 87, 0.08);
             border-radius: 10px;
+        }}
+        .experiment-status-card {{
+            border: 1px solid rgba(36, 48, 64, 0.14);
+            border-left: 5px solid var(--status-color);
+            border-radius: 8px;
+            padding: 1rem 1.1rem;
+            background: {PALETTE["soft"]};
+            margin: 0.75rem 0 1rem;
+        }}
+        .experiment-status-card strong {{
+            color: var(--status-color);
+        }}
+        .experiment-status-card ul {{
+            margin-bottom: 0;
         }}
         </style>
         """,
@@ -265,9 +296,9 @@ def render_series_bar(
     if chart.empty:
         st.info("No chart-ready rows are available yet.")
         return
-    marker_color = color or PALETTE["plum"]
+    marker_color = color or PALETTE["blue"]
     if color_by_sign:
-        marker_color = [PALETTE["lavender"] if value >= 0 else PALETTE["rose"] for value in chart[y].tolist()]
+        marker_color = [PALETTE["teal"] if value >= 0 else PALETTE["rose"] for value in chart[y].tolist()]
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
@@ -357,7 +388,7 @@ def render_scatter(
                 x=chart[x],
                 y=chart[y],
                 mode="markers",
-                marker={"size": 10, "color": PALETTE["plum"]},
+                marker={"size": 10, "color": PALETTE["blue"]},
                 name=y,
             )
         )
@@ -825,6 +856,16 @@ def load_stock_bundle(symbol: str) -> dict[str, object]:
     peer_training_rewards = safe_read_csv(results_dir / "peer_nlp_training_rewards_all_seeds.csv")
     peer_effect = safe_read_csv(results_dir / "peer_nlp_effect_summary.csv")
     peer_integrity = safe_read_csv(reports_dir / "peer_nlp_integrity_check.csv")
+    peer_state_diagnostics = safe_read_csv(reports_dir / "peer_nlp_group_state_diagnostics.csv")
+    market_impact_daily = safe_read_csv(results_dir / "peer_market_impact_daily_signal.csv")
+    market_impact_metrics = safe_read_csv(results_dir / "market_impact_ablation_metrics.csv")
+    market_impact_seed_metrics = safe_read_csv(results_dir / "market_impact_ablation_metrics_by_seed.csv")
+    market_impact_curves = safe_read_csv(results_dir / "market_impact_portfolio_curves.csv")
+    market_impact_drawdowns = safe_read_csv(results_dir / "market_impact_drawdown_curves.csv")
+    market_impact_logs = safe_read_csv(results_dir / "market_impact_trading_logs.csv")
+    market_impact_effect = safe_read_csv(results_dir / "market_impact_effect_summary.csv")
+    market_impact_reliability = safe_read_csv(reports_dir / "market_impact_reliability_check.csv")
+    market_impact_state_diagnostics = safe_read_csv(reports_dir / "market_impact_group_state_diagnostics.csv")
     behavior_summary = safe_read_csv(reports_dir / "model_behavior_visual_summary.csv")
     trade_outcomes = safe_read_csv(reports_dir / "trade_outcome_win_rate.csv")
     summary_json = latest_matching_file(reports_dir, "*_analysis_summary.json")
@@ -876,6 +917,16 @@ def load_stock_bundle(symbol: str) -> dict[str, object]:
         "peer_training_rewards": peer_training_rewards,
         "peer_effect": peer_effect,
         "peer_integrity": peer_integrity,
+        "peer_state_diagnostics": peer_state_diagnostics,
+        "market_impact_daily": market_impact_daily,
+        "market_impact_metrics": market_impact_metrics,
+        "market_impact_seed_metrics": market_impact_seed_metrics,
+        "market_impact_curves": market_impact_curves,
+        "market_impact_drawdowns": market_impact_drawdowns,
+        "market_impact_logs": market_impact_logs,
+        "market_impact_effect": market_impact_effect,
+        "market_impact_reliability": market_impact_reliability,
+        "market_impact_state_diagnostics": market_impact_state_diagnostics,
         "behavior_summary": behavior_summary,
         "trade_outcomes": trade_outcomes,
         "daily_net_flow": daily_net_flow,
@@ -979,7 +1030,7 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
             if official_available and {"sector_sentiment_score", "marketwide_sentiment_score"}.issubset(sentiment.columns):
                 frame = sentiment.set_index("date")[["sector_sentiment_score", "marketwide_sentiment_score"]]
                 render_multi_series(frame, kind="line", color_map={
-                    "sector_sentiment_score": PALETTE["lavender"],
+                    "sector_sentiment_score": PALETTE["teal"],
                     "marketwide_sentiment_score": PALETTE["rose"],
                 }, height=340)
                 st.caption("Peer-trained sentiment is scored on the target stock's own high-density news, then lagged before DQN decisions.")
@@ -994,7 +1045,7 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
             warning = news_concentration_warning(sentiment)
             if warning:
                 st.warning(warning)
-            render_series_bar(sentiment, "date", news_count_col, color=PALETTE["lavender"], height=340)
+            render_series_bar(sentiment, "date", news_count_col, color=PALETTE["teal"], height=340)
 
     with view_tabs[1]:
         st.subheader("Portfolio Value Curve")
@@ -1048,7 +1099,7 @@ def render_stock_outputs(bundle: dict[str, object]) -> None:
             st.info("No trading logs found yet.")
         else:
             action_counts = logs["action"].value_counts().rename_axis("action").reset_index(name="count")
-            render_series_bar(action_counts, "action", "count", color=PALETTE["plum"], height=300)
+            render_series_bar(action_counts, "action", "count", color=PALETTE["blue"], height=300)
             st.dataframe(logs.tail(50), use_container_width=True)
 
     with view_tabs[2]:
@@ -1122,7 +1173,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
             cols = [col for col in ["sector_final_equity_effect", "marketwide_final_equity_effect"] if col in summary_df.columns]
             if cols:
                 render_multi_series(summary_df.set_index(symbol_col)[cols], kind="bar", color_map={
-                    "sector_final_equity_effect": PALETTE["lavender"],
+                    "sector_final_equity_effect": PALETTE["teal"],
                     "marketwide_final_equity_effect": PALETTE["rose"],
                 }, height=360)
                 st.caption("Positive values mean the peer NLP DQN beat the no-NLP DQN in final equity.")
@@ -1130,7 +1181,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
             cols = [col for col in ["sector_sharpe_effect", "marketwide_sharpe_effect"] if col in summary_df.columns]
             if cols:
                 render_multi_series(summary_df.set_index(symbol_col)[cols], kind="bar", color_map={
-                    "sector_sharpe_effect": PALETTE["lavender"],
+                    "sector_sharpe_effect": PALETTE["teal"],
                     "marketwide_sharpe_effect": PALETTE["rose"],
                 }, height=360)
                 st.caption("Sharpe effect compares risk-adjusted performance against the no-NLP baseline.")
@@ -1141,7 +1192,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
                 st.caption("This directly compares sector-peer transfer with marketwide-peer transfer.")
         with peer_tabs[3]:
             if "target_sentiment_coverage" in summary_df.columns:
-                render_series_bar(summary_df, symbol_col, "target_sentiment_coverage", color=PALETTE["lavender"], height=320)
+                render_series_bar(summary_df, symbol_col, "target_sentiment_coverage", color=PALETTE["teal"], height=320)
                 st.caption("Coverage counts days where target-stock news exists; no-news days are missing signal, not neutral sentiment.")
             if {"target_sentiment_coverage", "sector_final_equity_effect"}.issubset(summary_df.columns):
                 render_scatter(summary_df, "target_sentiment_coverage", "sector_final_equity_effect", category=symbol_col, height=340)
@@ -1171,7 +1222,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
         if cols:
             render_multi_series(summary_df.set_index("symbol")[cols], kind="bar", color_map={
                 "buy_and_hold_final_equity": PALETTE["ink"],
-                "dqn_without_nlp_final_equity": PALETTE["plum"],
+                "dqn_without_nlp_final_equity": PALETTE["blue"],
                 "dqn_with_nlp_final_equity": PALETTE["rose"],
             }, height=360)
     with cross_tabs[1]:
@@ -1179,7 +1230,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
         if cols:
             render_multi_series(summary_df.set_index("symbol")[cols], kind="bar", color_map={
                 "buy_and_hold_cumulative_return": PALETTE["ink"],
-                "dqn_without_nlp_cumulative_return": PALETTE["plum"],
+                "dqn_without_nlp_cumulative_return": PALETTE["blue"],
                 "dqn_with_nlp_cumulative_return": PALETTE["rose"],
             }, height=360)
     with cross_tabs[2]:
@@ -1187,7 +1238,7 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
         if cols:
             render_multi_series(summary_df.set_index("symbol")[cols], kind="bar", color_map={
                 "buy_and_hold_sharpe": PALETTE["ink"],
-                "dqn_without_nlp_sharpe": PALETTE["plum"],
+                "dqn_without_nlp_sharpe": PALETTE["blue"],
                 "dqn_with_nlp_sharpe": PALETTE["rose"],
             }, height=360)
     with cross_tabs[3]:
@@ -1195,11 +1246,11 @@ def render_cross_stock_outputs(summary_df: pd.DataFrame, discussion_path: Path |
         if cols:
             render_multi_series(summary_df.set_index("symbol")[cols], kind="bar", color_map={
                 "nlp_final_equity_effect": PALETTE["rose"],
-                "nlp_sharpe_effect": PALETTE["lavender"],
+                "nlp_sharpe_effect": PALETTE["teal"],
             }, height=360)
     with cross_tabs[4]:
         if "sentiment_coverage_ratio" in summary_df.columns:
-            render_series_bar(summary_df, "symbol", "sentiment_coverage_ratio", color=PALETTE["lavender"], height=320)
+            render_series_bar(summary_df, "symbol", "sentiment_coverage_ratio", color=PALETTE["teal"], height=320)
         if {"sentiment_coverage_ratio", "nlp_final_equity_effect"}.issubset(summary_df.columns):
             render_scatter(summary_df, "sentiment_coverage_ratio", "nlp_final_equity_effect", category="symbol", height=340)
     with cross_tabs[5]:
@@ -1438,14 +1489,14 @@ def render_information_density_page(bundle: dict[str, object]) -> None:
         daily["date"] = pd.to_datetime(daily["date"], errors="coerce")
         chart_tabs = st.tabs(["Daily Count", "Cumulative %", "Coverage"])
         with chart_tabs[0]:
-            render_series_bar(daily, "date", "daily_news_count", title="Daily news count", color=PALETTE["lavender"], height=340)
+            render_series_bar(daily, "date", "daily_news_count", title="Daily news count", color=PALETTE["teal"], height=340)
         with chart_tabs[1]:
             pct_col = "recent_cumulative_news_pct" if "recent_cumulative_news_pct" in daily.columns else "cumulative_news_pct"
             render_series_line(daily, "date", pct_col, title="Cumulative news percentage", color=PALETTE["rose"], height=340)
         with chart_tabs[2]:
             if "news_available" in daily.columns:
                 daily["rolling_coverage_20d"] = pd.to_numeric(daily["news_available"], errors="coerce").fillna(0).rolling(20, min_periods=1).mean()
-                render_series_line(daily, "date", "rolling_coverage_20d", title="20-day news coverage", color=PALETTE["plum"], height=340)
+                render_series_line(daily, "date", "rolling_coverage_20d", title="20-day news coverage", color=PALETTE["blue"], height=340)
         st.dataframe(daily.tail(80), use_container_width=True)
     else:
         st.info("Daily news-density table is missing.")
@@ -1949,13 +2000,13 @@ def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]
                 sentiment_frame,
                 title="Sector-peer vs marketwide-peer sentiment scores",
                 kind="line",
-                color_map={"sector_sentiment_score": PALETTE["lavender"], "marketwide_sentiment_score": PALETTE["rose"]},
+                color_map={"sector_sentiment_score": PALETTE["teal"], "marketwide_sentiment_score": PALETTE["rose"]},
                 height=340,
             )
             st.caption("这张图表示 peer-trained NLP 对目标股票近端新闻的每日情绪打分；没有新闻的交易日不被当作真实中性新闻。")
         if "target_news_count" in peer_daily.columns:
             peer_daily["target_news_count"] = pd.to_numeric(peer_daily["target_news_count"], errors="coerce").fillna(0)
-            render_series_bar(peer_daily, "date", "target_news_count", title="Target stock daily news count", color=PALETTE["plum"], height=300)
+            render_series_bar(peer_daily, "date", "target_news_count", title="Target stock daily news count", color=PALETTE["blue"], height=300)
             st.caption("这张图显示目标股票在测试窗口内实际可被 NLP 打分的新闻密度。")
     else:
         st.warning("`peer_nlp_daily_sentiment.csv` is missing for this stock.")
@@ -2015,17 +2066,98 @@ def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]
     if isinstance(integrity, pd.DataFrame) and not integrity.empty:
         with st.expander("Peer NLP integrity checks", expanded=False):
             st.dataframe(integrity, use_container_width=True, hide_index=True)
+    state_diag = bundle.get("peer_state_diagnostics", pd.DataFrame())
+    if isinstance(state_diag, pd.DataFrame) and not state_diag.empty:
+        with st.expander("Peer NLP state diagnostics", expanded=False):
+            st.dataframe(state_diag, use_container_width=True, hide_index=True)
+
+
+def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, object]) -> None:
+    """Market-impact result page for the selected held-out target stock."""
+    st.subheader("Market-Impact Analysis")
+    st.caption("Market-impact NLP 用 peer 股票新闻后的未来收益贴标签，再把训练好的 impact scorer 用于 held-out target 新闻。")
+    daily = bundle.get("market_impact_daily", pd.DataFrame())
+    metrics = bundle.get("market_impact_metrics", pd.DataFrame())
+    curves = bundle.get("market_impact_curves", pd.DataFrame())
+    logs = bundle.get("market_impact_logs", pd.DataFrame())
+    effect = bundle.get("market_impact_effect", pd.DataFrame())
+    reliability = bundle.get("market_impact_reliability", pd.DataFrame())
+    diagnostics = bundle.get("market_impact_state_diagnostics", pd.DataFrame())
+
+    required = {
+        "peer_market_impact_daily_signal.csv": isinstance(daily, pd.DataFrame) and not daily.empty,
+        "market_impact_ablation_metrics.csv": isinstance(metrics, pd.DataFrame) and not metrics.empty,
+        "market_impact_portfolio_curves.csv": isinstance(curves, pd.DataFrame) and not curves.empty,
+        "market_impact_trading_logs.csv": isinstance(logs, pd.DataFrame) and not logs.empty,
+    }
+    missing = [name for name, ok in required.items() if not ok]
+    if missing:
+        st.warning("Market-impact output is incomplete: " + ", ".join(missing))
+        st.caption("如果只看到 item signal 或 window 文件，通常是旧缓存或中途异常留下的半成品；现在重新运行会先清理这些缓存。")
+        return
+
+    daily = daily.copy()
+    daily["date"] = pd.to_datetime(daily.get("date"), errors="coerce")
+    cols = st.columns(4)
+    cols[0].metric("Sector impact corpus", str(daily.get("sector_impact_corpus_status", pd.Series(["-"])).dropna().iloc[0]) if "sector_impact_corpus_status" in daily.columns and daily["sector_impact_corpus_status"].notna().any() else "-")
+    cols[1].metric("Marketwide impact corpus", str(daily.get("marketwide_impact_corpus_status", pd.Series(["-"])).dropna().iloc[0]) if "marketwide_impact_corpus_status" in daily.columns and daily["marketwide_impact_corpus_status"].notna().any() else "-")
+    cols[2].metric("Target news coverage", f"{float(pd.to_numeric(daily.get('news_available', 0), errors='coerce').fillna(0).mean()):.1%}")
+    label = "-"
+    if isinstance(effect, pd.DataFrame) and not effect.empty:
+        label = str(effect.iloc[0].get("reliability_status", "-"))
+    cols[3].metric("Reliability", label)
+
+    score_cols = [col for col in ["sector_impact_score", "marketwide_impact_score"] if col in daily.columns]
+    if score_cols:
+        render_multi_series(
+            daily.set_index("date")[score_cols].apply(pd.to_numeric, errors="coerce"),
+            title="Market-impact scores",
+            kind="line",
+            color_map={"sector_impact_score": PALETTE["purple"], "marketwide_impact_score": PALETTE["rose"]},
+            height=340,
+        )
+    if "target_news_count" in daily.columns:
+        render_series_bar(daily, "date", "target_news_count", title="Target news count for impact scoring", color=PALETTE["amber"], height=300)
+
+    st.markdown("#### Market-impact Ablation Metrics")
+    st.dataframe(metrics, use_container_width=True, hide_index=True)
+    metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades"] if col in metrics.columns]
+    if "experiment" in metrics.columns and metric_cols:
+        render_multi_series(metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce"), title="Market-impact strategy metrics", kind="bar", color_map=EXPERIMENT_COLORS, height=380)
+
+    if {"date", "experiment", "portfolio_value"}.issubset(curves.columns):
+        curves = curves.copy()
+        curves["date"] = pd.to_datetime(curves["date"], errors="coerce")
+        curves["portfolio_value"] = pd.to_numeric(curves["portfolio_value"], errors="coerce")
+        curve_frame = curves.pivot_table(index="date", columns="experiment", values="portfolio_value", aggfunc="mean")
+        render_multi_series(curve_frame, title="Market-impact portfolio curves", kind="line", color_map=EXPERIMENT_COLORS, height=360)
+
+    if {"experiment", "action"}.issubset(logs.columns):
+        action_frame = logs.groupby(["action", "experiment"]).size().unstack(fill_value=0)
+        render_multi_series(action_frame, title="Market-impact Buy / Sell / Hold counts", kind="bar", color_map=EXPERIMENT_COLORS, height=320)
+
+    if isinstance(effect, pd.DataFrame) and not effect.empty:
+        st.markdown("#### Market-impact Effect Summary")
+        st.dataframe(effect, use_container_width=True, hide_index=True)
+    if isinstance(reliability, pd.DataFrame) and not reliability.empty:
+        with st.expander("Market-impact reliability checks", expanded=False):
+            st.dataframe(reliability, use_container_width=True, hide_index=True)
+    if isinstance(diagnostics, pd.DataFrame) and not diagnostics.empty:
+        with st.expander("Market-impact state diagnostics", expanded=False):
+            st.dataframe(diagnostics, use_container_width=True, hide_index=True)
 
 
 def render_result_review_dashboard(symbol: str) -> None:
     bundle = load_stock_bundle(symbol)
-    tabs = st.tabs(["Single Stock Basics", "Scraping Density", "Peer Cross Analysis"])
+    tabs = st.tabs(["Single Stock Basics", "Scraping Density", "Peer Cross Analysis", "Market Impact Analysis"])
     with tabs[0]:
         render_single_stock_basic_page(symbol, bundle)
     with tabs[1]:
         render_information_density_page(bundle)
     with tabs[2]:
         render_peer_cross_analysis_for_symbol(symbol, bundle)
+    with tabs[3]:
+        render_market_impact_analysis_for_symbol(symbol, bundle)
 
 
 def _figure_to_html(fig: go.Figure, *, include_plotlyjs: bool = False) -> str:
@@ -2121,13 +2253,13 @@ def create_visual_report_html(target_symbol: str, completed_symbols: list[str], 
     if isinstance(net_flow, pd.DataFrame):
         flow_col = "net_flow_cny_million" if "net_flow_cny_million" in net_flow.columns else "net_flow" if "net_flow" in net_flow.columns else ""
         if flow_col:
-            first_chart = not _add_html_bar_chart(html_parts, net_flow, "date", flow_col, "Daily net inflow / outflow", color=PALETTE["plum"], include_plotlyjs=first_chart)
+            first_chart = not _add_html_bar_chart(html_parts, net_flow, "date", flow_col, "Daily net inflow / outflow", color=PALETTE["blue"], include_plotlyjs=first_chart)
 
     html_parts.append("<h2>Scraping Density</h2>")
     if isinstance(density, pd.DataFrame) and "news_count" in density.columns:
-        first_chart = not _add_html_bar_chart(html_parts, density, "date", "news_count", "Daily news density", color=PALETTE["lavender"], include_plotlyjs=first_chart)
+        first_chart = not _add_html_bar_chart(html_parts, density, "date", "news_count", "Daily news density", color=PALETTE["teal"], include_plotlyjs=first_chart)
     elif isinstance(peer_daily, pd.DataFrame) and "target_news_count" in peer_daily.columns:
-        first_chart = not _add_html_bar_chart(html_parts, peer_daily, "date", "target_news_count", "Target news count in evaluation window", color=PALETTE["lavender"], include_plotlyjs=first_chart)
+        first_chart = not _add_html_bar_chart(html_parts, peer_daily, "date", "target_news_count", "Target news count in evaluation window", color=PALETTE["teal"], include_plotlyjs=first_chart)
 
     html_parts.append("<h2>Peer Cross Analysis</h2>")
     if isinstance(peer_daily, pd.DataFrame) and not peer_daily.empty:
@@ -2293,6 +2425,7 @@ def create_export_bundle(
                 stock_reports_dir(symbol) / "peer_nlp_report_section.md",
                 stock_reports_dir(symbol) / "peer_nlp_information_density_split.csv",
                 stock_reports_dir(symbol) / "peer_nlp_train_eval_windows.csv",
+                stock_reports_dir(symbol) / "peer_nlp_group_state_diagnostics.csv",
                 stock_results_dir(symbol) / "peer_market_impact_daily_signal.csv",
                 stock_results_dir(symbol) / "market_impact_ablation_metrics.csv",
                 stock_results_dir(symbol) / "market_impact_ablation_metrics_by_seed.csv",
@@ -2378,6 +2511,104 @@ def _status_progress(rows: list[dict[str, object]]) -> float:
     complete_states = {"ready_local", "ready", "fetched", "processed", "completed", "skipped"}
     done = sum(1 for row in rows if str(row.get("status", "")).lower() in complete_states)
     return min(max(done / len(rows), 0.0), 1.0)
+
+
+def _curve_is_flat(frame: pd.DataFrame, experiment: str) -> bool:
+    if frame.empty or "experiment" not in frame.columns or "portfolio_value" not in frame.columns:
+        return True
+    values = pd.to_numeric(frame.loc[frame["experiment"].astype(str) == experiment, "portfolio_value"], errors="coerce").dropna()
+    return values.empty or values.nunique() <= 1
+
+
+def _trade_count(frame: pd.DataFrame, experiment: str) -> int:
+    if frame.empty or "experiment" not in frame.columns or "action" not in frame.columns:
+        return 0
+    actions = frame.loc[frame["experiment"].astype(str) == experiment, "action"].astype(str)
+    return int(actions.isin(["Buy", "Sell"]).sum())
+
+
+def experiment_anomaly_rows(symbols: list[str], *, include_market_impact: bool) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for symbol in symbols:
+        code = normalize_symbol_for_path(symbol)
+        bundle = load_stock_bundle(code)
+        peer_effect = bundle.get("peer_effect", pd.DataFrame())
+        peer_curves = bundle.get("peer_curves", pd.DataFrame())
+        peer_logs = bundle.get("peer_logs", pd.DataFrame())
+        peer_diag = bundle.get("peer_state_diagnostics", pd.DataFrame())
+        reliability = ""
+        if isinstance(peer_effect, pd.DataFrame) and not peer_effect.empty:
+            reliability = str(peer_effect.iloc[0].get("reliability_status", ""))
+        if reliability and reliability != "READY_FOR_SUBMISSION":
+            reason = str(peer_effect.iloc[0].get("reason_if_not_reliable", "")) if isinstance(peer_effect, pd.DataFrame) and not peer_effect.empty else ""
+            rows.append({"symbol": code, "experiment": "Peer sentiment NLP", "severity": "warning", "issue": reliability, "evidence": reason or "Peer NLP reliability did not pass."})
+        for experiment in ["dqn_with_sector_peer_nlp", "dqn_with_marketwide_peer_nlp"]:
+            if _curve_is_flat(peer_curves, experiment) or _trade_count(peer_logs, experiment) == 0:
+                evidence = f"portfolio_curve_flat={_curve_is_flat(peer_curves, experiment)}; buy/sell trades={_trade_count(peer_logs, experiment)}"
+                if isinstance(peer_diag, pd.DataFrame) and not peer_diag.empty and {"experiment", "period", "state_column", "nonzero_count"}.issubset(peer_diag.columns):
+                    match = peer_diag[
+                        (peer_diag["experiment"].astype(str) == experiment)
+                        & (peer_diag["period"].astype(str) == "train")
+                        & (peer_diag["state_column"].astype(str).str.contains("sentiment_score", na=False))
+                    ]
+                    if not match.empty:
+                        evidence += f"; train_nonzero_signal={int(pd.to_numeric(match['nonzero_count'], errors='coerce').fillna(0).sum())}"
+                rows.append({"symbol": code, "experiment": experiment, "severity": "warning", "issue": "NLP DQN did not trade reliably", "evidence": evidence})
+
+        if include_market_impact:
+            market_files = {
+                "daily_signal": stock_results_dir(code) / "peer_market_impact_daily_signal.csv",
+                "metrics": stock_results_dir(code) / "market_impact_ablation_metrics.csv",
+                "curves": stock_results_dir(code) / "market_impact_portfolio_curves.csv",
+                "logs": stock_results_dir(code) / "market_impact_trading_logs.csv",
+            }
+            missing = [name for name, path in market_files.items() if not path.exists() or path.stat().st_size <= 4]
+            if missing:
+                rows.append({"symbol": code, "experiment": "Market-impact NLP", "severity": "error", "issue": "Incomplete market-impact outputs", "evidence": ", ".join(missing)})
+            market_effect = bundle.get("market_impact_effect", pd.DataFrame())
+            if isinstance(market_effect, pd.DataFrame) and not market_effect.empty:
+                status = str(market_effect.iloc[0].get("reliability_status", ""))
+                if status and status != "READY_FOR_PRESENTATION":
+                    rows.append({"symbol": code, "experiment": "Market-impact NLP", "severity": "warning", "issue": status, "evidence": str(market_effect.iloc[0].get("reason_if_not_reliable", ""))})
+    return rows
+
+
+def render_experiment_completion_notice(
+    run_rows: list[dict[str, object]],
+    failures: list[dict[str, str]],
+    completed: list[str],
+    *,
+    include_market_impact: bool,
+) -> None:
+    if not run_rows:
+        return
+    running = [row for row in run_rows if str(row.get("status", "")).lower() == "running"]
+    if running:
+        return
+    anomalies = experiment_anomaly_rows(completed, include_market_impact=include_market_impact) if completed else []
+    status_color = PALETTE["rose"] if failures or any(row["severity"] == "error" for row in anomalies) else PALETTE["amber"] if anomalies else PALETTE["green"]
+    title = "实验已结束"
+    if failures:
+        subtitle = f"{len(completed)} completed, {len(failures)} failed."
+    elif anomalies:
+        subtitle = f"{len(completed)} completed, 0 failed, but {len(anomalies)} reliability warning(s) need review."
+    else:
+        subtitle = f"{len(completed)} completed, 0 failed, no blocking anomaly detected."
+    issue_items = "".join(f"<li><strong>{html.escape(row['experiment'])}</strong> [{html.escape(row['symbol'])}]: {html.escape(row['issue'])}. {html.escape(row['evidence'])}</li>" for row in anomalies[:6])
+    failure_items = "".join(f"<li><strong>{html.escape(str(item.get('symbol', '-')))}</strong>: {html.escape(str(item.get('error', '-')))}</li>" for item in failures[:6])
+    details = issue_items + failure_items
+    if not details:
+        details = "<li>All tracked artifacts are present and reliability checks did not raise a dashboard-level warning.</li>"
+    st.markdown(
+        f"""
+        <div class="experiment-status-card" style="--status-color: {status_color};">
+            <strong>{title}</strong>
+            <div>{html.escape(subtitle)}</div>
+            <ul>{details}</ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def experiment_workflow_rows(experiment_mode: str) -> pd.DataFrame:
@@ -3134,6 +3365,13 @@ workflow_phase_logs = st.session_state.get("workflow_phase_logs", [])
 workflow_status_rows = st.session_state.get("workflow_status_rows", [])
 training_status_rows = st.session_state.get("training_status_rows", [])
 workflow_export_bundle = st.session_state.get("workflow_export_bundle")
+
+render_experiment_completion_notice(
+    workflow_runs,
+    workflow_failures,
+    completed_symbols,
+    include_market_impact=bool(market_cross_payload) or run_market_impact_nlp,
+)
 
 if training_status_rows:
     st.markdown("#### Training Peer Set Progress")

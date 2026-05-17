@@ -43,6 +43,7 @@ from src.rl.train import evaluate_agent, train_dqn
 WITHOUT_NLP_STATE_COLUMNS = ["price", "MA50", "MA200", "RSI", "MACD", "position", "cash"]
 SECTOR_PEER_NLP_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_sentiment_score"]
 MARKETWIDE_PEER_NLP_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["marketwide_sentiment_score"]
+PEER_NLP_SIGNAL_COLUMNS = ["sector_sentiment_score", "marketwide_sentiment_score", "target_news_available"]
 OFFICIAL_EXPERIMENT = "peer_sector_nlp_transfer"
 LEGACY_EXPERIMENT = "stock_level_nlp"
 
@@ -122,6 +123,8 @@ def run_peer_nlp_ablation_study(
     peer_daily = pd.read_csv(peer_sentiment_csv) if peer_sentiment_csv.exists() else pd.DataFrame()
     features = add_peer_trading_features(market, peer_daily, initial_cash=initial_cash)
     train_frame, test_frame, split_info = peer_train_test_split(features, peer_daily)
+    if _needs_nlp_aware_high_density_split(train_frame, test_frame):
+        train_frame, test_frame, split_info = _high_density_internal_split(test_frame, split_info)
     corpus_status = _corpus_status(peer_daily)
     target_coverage = _target_sentiment_coverage(peer_daily)
 
@@ -130,6 +133,14 @@ def run_peer_nlp_ablation_study(
         "dqn_with_sector_peer_nlp": {"columns": SECTOR_PEER_NLP_STATE_COLUMNS, "ready": corpus_status["sector"] == "READY"},
         "dqn_with_marketwide_peer_nlp": {"columns": MARKETWIDE_PEER_NLP_STATE_COLUMNS, "ready": corpus_status["marketwide"] == "READY"},
     }
+    state_feature_diagnostics = _peer_state_feature_diagnostics(train_frame, test_frame, state_specs)
+    for experiment, spec in state_specs.items():
+        signal_columns = [column for column in spec["columns"] if column in {"sector_sentiment_score", "marketwide_sentiment_score"}]
+        if signal_columns and spec["ready"]:
+            has_signal = any(pd.to_numeric(train_frame[column], errors="coerce").fillna(0).abs().sum() > 1e-12 for column in signal_columns if column in train_frame.columns)
+            if not has_signal:
+                spec["ready"] = False
+                spec["not_ready_reason"] = "selected_dqn_training_window_has_no_nonzero_peer_nlp_signal"
 
     state_compliance_frames: list[pd.DataFrame] = []
     leakage_frames: list[pd.DataFrame] = []
@@ -188,8 +199,8 @@ def run_peer_nlp_ablation_study(
             )
             rewards = trained["training_rewards"]
             rewards["official_experiment"] = OFFICIAL_EXPERIMENT
-            rewards["training_period"] = "target_market_learning_window"
-            rewards["evaluation_period"] = "target_high_density_window"
+            rewards["training_period"] = split_info.get("training_period_label", "target_market_learning_window")
+            rewards["evaluation_period"] = split_info.get("evaluation_period_label", "target_high_density_window")
             training_rewards.append(rewards)
             log = evaluate_agent(
                 trained["agent"],
@@ -202,8 +213,8 @@ def run_peer_nlp_ablation_study(
                 reward_mode=reward_mode,
             )
             log["official_experiment"] = OFFICIAL_EXPERIMENT
-            log["training_period"] = "target_market_learning_window"
-            log["evaluation_period"] = "target_high_density_window"
+            log["training_period"] = split_info.get("training_period_label", "target_market_learning_window")
+            log["evaluation_period"] = split_info.get("evaluation_period_label", "target_high_density_window")
             trading_logs.append(log)
             curve = _curve_from_log(log, experiment, seed)
             portfolio_curves.append(curve)
@@ -231,6 +242,7 @@ def run_peer_nlp_ablation_study(
         "logs": output_dir / "peer_nlp_trading_logs.csv",
         "rewards": output_dir / "peer_nlp_training_rewards_all_seeds.csv",
         "state": reports_dir / "peer_nlp_state_vector_compliance.csv",
+        "state_features": reports_dir / "peer_nlp_group_state_diagnostics.csv",
         "leakage": reports_dir / "peer_nlp_leakage_diagnostics.csv",
         "split": reports_dir / "peer_nlp_train_eval_windows.csv",
         "effect": output_dir / "peer_nlp_effect_summary.csv",
@@ -243,6 +255,7 @@ def run_peer_nlp_ablation_study(
     logs_df.reindex(columns=sorted(set(TRADING_LOG_COLUMNS).union(logs_df.columns))).to_csv(paths["logs"], index=False, encoding="utf-8-sig")
     rewards_df.to_csv(paths["rewards"], index=False, encoding="utf-8-sig")
     pd.concat(state_compliance_frames, ignore_index=True).to_csv(paths["state"], index=False, encoding="utf-8-sig")
+    state_feature_diagnostics.to_csv(paths["state_features"], index=False, encoding="utf-8-sig")
     pd.concat(leakage_frames, ignore_index=True).to_csv(paths["leakage"], index=False, encoding="utf-8-sig")
     pd.DataFrame([split_info]).to_csv(paths["split"], index=False, encoding="utf-8-sig")
     effect.to_csv(paths["effect"], index=False, encoding="utf-8-sig")
@@ -268,6 +281,7 @@ def run_peer_nlp_ablation_study(
         "peer_nlp_effect_summary_csv": paths["effect"],
         "peer_nlp_integrity_check_csv": paths["integrity"],
         "peer_nlp_train_eval_windows_csv": paths["split"],
+        "peer_nlp_group_state_diagnostics_csv": paths["state_features"],
     }
 
 
@@ -313,6 +327,89 @@ def add_peer_trading_features(market: pd.DataFrame, peer_daily: pd.DataFrame, *,
     for column, default in defaults.items():
         features[column] = pd.to_numeric(features[column], errors="coerce").fillna(default)
     return features
+
+
+def _needs_nlp_aware_high_density_split(train_frame: pd.DataFrame, test_frame: pd.DataFrame) -> bool:
+    """Detect the all-zero training signal that made peer NLP DQN policies flat.
+
+    Peer NLP is trained only on peer text, but the DQN still needs target-side
+    non-zero NLP state values in its own training window.  Some targets have no
+    target news before the high-density evaluation period, so the historical
+    train window contains only zero NLP features while the test window contains
+    signal variation.
+    """
+
+    if train_frame.empty or test_frame.empty:
+        return False
+    signal_columns = [column for column in ["sector_sentiment_score", "marketwide_sentiment_score"] if column in train_frame.columns and column in test_frame.columns]
+    if not signal_columns:
+        return False
+    train_has_signal = any(pd.to_numeric(train_frame[column], errors="coerce").fillna(0).abs().sum() > 1e-12 for column in signal_columns)
+    test_has_signal = any(pd.to_numeric(test_frame[column], errors="coerce").fillna(0).abs().sum() > 1e-12 for column in signal_columns)
+    return (not train_has_signal) and test_has_signal and len(test_frame) >= max(MIN_HIGH_DENSITY_TRADING_DAYS * 2, 60)
+
+
+def _high_density_internal_split(high_density_frame: pd.DataFrame, old_split: dict[str, object]) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+    """Split the high-density target window into train/test without leakage."""
+
+    frame = high_density_frame.sort_values("date").reset_index(drop=True).copy()
+    active_mask = pd.Series(False, index=frame.index)
+    for column in PEER_NLP_SIGNAL_COLUMNS:
+        if column in frame.columns:
+            active_mask = active_mask | (pd.to_numeric(frame[column], errors="coerce").fillna(0).abs() > 1e-12)
+    if active_mask.any():
+        frame = frame.loc[active_mask.idxmax() :].reset_index(drop=True)
+    min_test_rows = min(MIN_HIGH_DENSITY_TRADING_DAYS, max(int(len(frame) * 0.35), 10))
+    split_at = max(int(len(frame) * 0.6), 10)
+    split_at = min(split_at, max(len(frame) - min_test_rows, 1))
+    train = frame.iloc[:split_at].copy().reset_index(drop=True)
+    test = frame.iloc[split_at:].copy().reset_index(drop=True)
+    split = dict(old_split)
+    split.update(
+        {
+            "train_rows": int(len(train)),
+            "test_rows": int(len(test)),
+            "train_start": _date_text(train["date"].min()) if not train.empty else "",
+            "train_end": _date_text(train["date"].max()) if not train.empty else "",
+            "test_start": _date_text(test["date"].min()) if not test.empty else "",
+            "test_end": _date_text(test["date"].max()) if not test.empty else "",
+            "consistent_period": bool(train.empty or test.empty or train["date"].max() < test["date"].min()),
+            "window_status": "READY_NLP_AWARE_HIGH_DENSITY_SPLIT",
+            "training_period_label": "target_high_density_signal_learning_window",
+            "evaluation_period_label": "target_high_density_holdout_window",
+            "split_reason": "pre_high_density_training_window_has_no_nonzero_peer_nlp_signal",
+        }
+    )
+    return train, test, split
+
+
+def _peer_state_feature_diagnostics(
+    train_frame: pd.DataFrame,
+    test_frame: pd.DataFrame,
+    state_specs: dict[str, dict[str, object]],
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for experiment, spec in state_specs.items():
+        for period, frame in [("train", train_frame), ("test", test_frame)]:
+            for column in spec["columns"]:
+                values = pd.to_numeric(frame.get(column, pd.Series(dtype=float)), errors="coerce")
+                rows.append(
+                    {
+                        "experiment": experiment,
+                        "period": period,
+                        "state_column": column,
+                        "rows": int(len(frame)),
+                        "non_missing_count": int(values.notna().sum()),
+                        "missing_count": int(values.isna().sum()),
+                        "nonzero_count": int((values.fillna(0).abs() > 1e-12).sum()),
+                        "mean": float(values.mean()) if values.notna().any() else np.nan,
+                        "std": float(values.std()) if values.notna().sum() > 1 else np.nan,
+                        "min": float(values.min()) if values.notna().any() else np.nan,
+                        "max": float(values.max()) if values.notna().any() else np.nan,
+                        "is_peer_nlp_signal": column in {"sector_sentiment_score", "marketwide_sentiment_score"},
+                    }
+                )
+    return pd.DataFrame(rows)
 
 
 def peer_train_test_split(features: pd.DataFrame, peer_daily: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
@@ -553,7 +650,9 @@ def _integrity_rows(symbol: str, peer_daily: pd.DataFrame, metrics: pd.DataFrame
     checks.append(_check(symbol, "marketwide_training_news_threshold", market_news >= MIN_MARKETWIDE_TRAINING_NEWS, f"marketwide_training_news={market_news}"))
     checks.append(_check(symbol, "high_density_window_threshold", int(split_info.get("test_rows", 0)) >= MIN_HIGH_DENSITY_TRADING_DAYS, f"test_rows={split_info.get('test_rows', 0)}"))
     checks.append(_check(symbol, "sentiment_coverage_threshold", coverage >= MIN_TARGET_SENTIMENT_COVERAGE, f"coverage={coverage:.1%}"))
-    checks.append(_check(symbol, "dqn_non_flat_portfolio_curves", not all(_curve_flat(curves, exp) for exp in ["dqn_without_nlp", "dqn_with_marketwide_peer_nlp"]), "At least one DQN curve must move."))
+    checks.append(_check(symbol, "baseline_dqn_non_flat_portfolio_curve", not _curve_flat(curves, "dqn_without_nlp"), "No-NLP DQN curve should move."))
+    checks.append(_check(symbol, "sector_peer_dqn_non_flat_portfolio_curve", not _curve_flat(curves, "dqn_with_sector_peer_nlp"), "Sector peer NLP DQN curve should move."))
+    checks.append(_check(symbol, "marketwide_peer_dqn_non_flat_portfolio_curve", not _curve_flat(curves, "dqn_with_marketwide_peer_nlp"), "Marketwide peer NLP DQN curve should move."))
     checks.append(_check(symbol, "dqn_test_trades_positive", _test_trade_count(logs) > 0, f"test_trades={_test_trade_count(logs)}"))
     checks.append(_check(symbol, "legacy_stock_level_nlp_not_official", True, "Dashboard/report should read peer_nlp_* files by default."))
     frame = pd.DataFrame(checks)
