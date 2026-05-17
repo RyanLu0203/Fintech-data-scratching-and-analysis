@@ -24,6 +24,15 @@ outputs/
 outputs/*
 !outputs/model_upgrade/
 !outputs/model_upgrade/*
+!outputs/system/
+outputs/system/*
+!outputs/system/gpt_diagnostics/
+outputs/system/gpt_diagnostics/*
+!outputs/system/gpt_diagnostics/*.zip
+!outputs/system/gpt_diagnostics/*/
+outputs/system/gpt_diagnostics/*/*
+!outputs/system/gpt_diagnostics/*/GPT_DIAGNOSTIC_SUMMARY.md
+!outputs/system/gpt_diagnostics/*/MANIFEST.json
 data/integrated/
 *.db
 data/*.db

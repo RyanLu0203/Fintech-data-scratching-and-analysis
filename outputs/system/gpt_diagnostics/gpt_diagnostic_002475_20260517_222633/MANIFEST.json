@@ -1,0 +1,398 @@
+[
+  {
+    "path": "GPT_DIAGNOSTIC_SUMMARY.md",
+    "size_bytes": 22672
+  },
+  {
+    "path": "outputs/stocks/002475/data/002475_diagnostic_20260514_232219.json",
+    "size_bytes": 2342
+  },
+  {
+    "path": "outputs/stocks/002475/data/002475_finance_text_2024-01-01_2026-04-30.csv",
+    "size_bytes": 1664098
+  },
+  {
+    "path": "outputs/stocks/002475/reports/002475_finance_text_2024-01-01_2026-04-30_daily_net_flow.csv",
+    "size_bytes": 92112
+  },
+  {
+    "path": "outputs/stocks/002475/reports/002475_finance_text_2024-01-01_2026-04-30_signal_diagnostics.csv",
+    "size_bytes": 1751
+  },
+  {
+    "path": "outputs/stocks/002475/reports/daily_news_density.csv",
+    "size_bytes": 38473
+  },
+  {
+    "path": "outputs/stocks/002475/reports/information_density_split.csv",
+    "size_bytes": 583
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_experiment_window.csv",
+    "size_bytes": 312
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_group_state_diagnostics.csv",
+    "size_bytes": 9518
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_leakage_diagnostics.csv",
+    "size_bytes": 4741
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_reliability_check.csv",
+    "size_bytes": 1115
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_report_section.md",
+    "size_bytes": 829
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_state_vector_compliance.csv",
+    "size_bytes": 3397
+  },
+  {
+    "path": "outputs/stocks/002475/reports/market_impact_train_eval_windows.csv",
+    "size_bytes": 598
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_experiment_window.csv",
+    "size_bytes": 312
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_group_state_diagnostics.csv",
+    "size_bytes": 6401
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_information_density_split.csv",
+    "size_bytes": 583
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_integrity_check.csv",
+    "size_bytes": 1259
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_leakage_diagnostics.csv",
+    "size_bytes": 2789
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_report_section.md",
+    "size_bytes": 573
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_state_vector_compliance.csv",
+    "size_bytes": 1406
+  },
+  {
+    "path": "outputs/stocks/002475/reports/peer_nlp_train_eval_windows.csv",
+    "size_bytes": 391
+  },
+  {
+    "path": "outputs/stocks/002475/reports/rolling_information_coefficient.csv",
+    "size_bytes": 362204
+  },
+  {
+    "path": "outputs/stocks/002475/reports/signal_quantile_future_returns.csv",
+    "size_bytes": 4
+  },
+  {
+    "path": "outputs/stocks/002475/reports/signal_validity_summary.csv",
+    "size_bytes": 1242
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_impact_nlp_trading_log.csv",
+    "size_bytes": 39433
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_impact_nlp_training_rewards.csv",
+    "size_bytes": 10800
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_peer_nlp_trading_log.csv",
+    "size_bytes": 38023
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_peer_nlp_training_rewards.csv",
+    "size_bytes": 21169
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_sentiment_nlp_trading_log.csv",
+    "size_bytes": 40982
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_marketwide_sentiment_nlp_training_rewards.csv",
+    "size_bytes": 11108
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_impact_nlp_trading_log.csv",
+    "size_bytes": 38071
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_impact_nlp_training_rewards.csv",
+    "size_bytes": 10409
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_peer_nlp_trading_log.csv",
+    "size_bytes": 36561
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_peer_nlp_training_rewards.csv",
+    "size_bytes": 20353
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_sentiment_nlp_trading_log.csv",
+    "size_bytes": 38397
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_with_sector_sentiment_nlp_training_rewards.csv",
+    "size_bytes": 10691
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_without_nlp_trading_log.csv",
+    "size_bytes": 33533
+  },
+  {
+    "path": "outputs/stocks/002475/results/dqn_without_nlp_training_rewards.csv",
+    "size_bytes": 9291
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_ablation_metrics.csv",
+    "size_bytes": 5810
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_ablation_metrics_by_seed.csv",
+    "size_bytes": 9597
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_drawdown_curves.csv",
+    "size_bytes": 174474
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_effect_summary.csv",
+    "size_bytes": 1321
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_portfolio_curves.csv",
+    "size_bytes": 177446
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_trading_logs.csv",
+    "size_bytes": 909652
+  },
+  {
+    "path": "outputs/stocks/002475/results/market_impact_training_rewards_all_seeds.csv",
+    "size_bytes": 815487
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_market_impact_daily_signal.csv",
+    "size_bytes": 94517
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_market_impact_item_signal.csv",
+    "size_bytes": 1621662
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_ablation_metrics.csv",
+    "size_bytes": 3968
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_ablation_metrics_by_seed.csv",
+    "size_bytes": 6683
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_daily_sentiment.csv",
+    "size_bytes": 90939
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_drawdown_curves.csv",
+    "size_bytes": 108982
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_effect_summary.csv",
+    "size_bytes": 1080
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_item_sentiment.csv",
+    "size_bytes": 1373149
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_portfolio_curves.csv",
+    "size_bytes": 102285
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_trading_logs.csv",
+    "size_bytes": 510236
+  },
+  {
+    "path": "outputs/stocks/002475/results/peer_nlp_training_rewards_all_seeds.csv",
+    "size_bytes": 606842
+  },
+  {
+    "path": "outputs/stocks/002475/results/shared_market_only_pretrain_trading_log.csv",
+    "size_bytes": 51447
+  },
+  {
+    "path": "outputs/stocks/002475/results/shared_market_only_pretrain_training_rewards.csv",
+    "size_bytes": 20985
+  },
+  {
+    "path": "outputs/system/latest_peer_training_progress.csv",
+    "size_bytes": 1089
+  },
+  {
+    "path": "outputs/system/market_impact_cross_stock_diagnostics.csv",
+    "size_bytes": 69
+  },
+  {
+    "path": "outputs/system/market_impact_cross_stock_discussion.md",
+    "size_bytes": 420
+  },
+  {
+    "path": "outputs/system/market_impact_cross_stock_summary.csv",
+    "size_bytes": 1403
+  },
+  {
+    "path": "outputs/system/peer_nlp_cross_stock_diagnostics.csv",
+    "size_bytes": 67
+  },
+  {
+    "path": "outputs/system/peer_nlp_cross_stock_discussion.md",
+    "size_bytes": 445
+  },
+  {
+    "path": "outputs/system/peer_nlp_cross_stock_summary.csv",
+    "size_bytes": 1160
+  },
+  {
+    "path": "outputs/system/reports/cross_stock_feasibility_summary.csv",
+    "size_bytes": 604
+  },
+  {
+    "path": "outputs/system/reports/data_quality_diagnostics.csv",
+    "size_bytes": 761
+  },
+  {
+    "path": "outputs/system/reports/feasibility_audit.csv",
+    "size_bytes": 1409
+  },
+  {
+    "path": "outputs/system/reports/feasibility_audit.md",
+    "size_bytes": 1566
+  },
+  {
+    "path": "outputs/system/reports/missing_file_report.csv",
+    "size_bytes": 734
+  },
+  {
+    "path": "reports/tables/action_behavior_diagnostics.csv",
+    "size_bytes": 11671
+  },
+  {
+    "path": "reports/tables/enhanced_nlp_ablation_metrics.csv",
+    "size_bytes": 18167
+  },
+  {
+    "path": "reports/tables/experiment_window_summary.csv",
+    "size_bytes": 553
+  },
+  {
+    "path": "reports/tables/hyperparameter_sensitivity_plan.csv",
+    "size_bytes": 240
+  },
+  {
+    "path": "reports/tables/information_density_diagnostics.csv",
+    "size_bytes": 64
+  },
+  {
+    "path": "reports/tables/information_density_split.csv",
+    "size_bytes": 847
+  },
+  {
+    "path": "reports/tables/market_impact_corpus_summary.csv",
+    "size_bytes": 768
+  },
+  {
+    "path": "reports/tables/market_impact_effect_summary.csv",
+    "size_bytes": 1321
+  },
+  {
+    "path": "reports/tables/model_stability_summary.csv",
+    "size_bytes": 4322
+  },
+  {
+    "path": "reports/tables/news_density_80_20_recent_split.csv",
+    "size_bytes": 2529
+  },
+  {
+    "path": "reports/tables/news_density_80_20_split.csv",
+    "size_bytes": 3076
+  },
+  {
+    "path": "reports/tables/news_density_summary.csv",
+    "size_bytes": 2226
+  },
+  {
+    "path": "reports/tables/nlp_gold_label_evaluation.csv",
+    "size_bytes": 605
+  },
+  {
+    "path": "reports/tables/nlp_gold_label_template.csv",
+    "size_bytes": 250588
+  },
+  {
+    "path": "reports/tables/nlp_model_comparison_final.csv",
+    "size_bytes": 605
+  },
+  {
+    "path": "reports/tables/peer_nlp_corpus_audit_latest.csv",
+    "size_bytes": 1424
+  },
+  {
+    "path": "reports/tables/peer_nlp_corpus_summary.csv",
+    "size_bytes": 741
+  },
+  {
+    "path": "reports/tables/peer_nlp_effect_summary.csv",
+    "size_bytes": 1080
+  },
+  {
+    "path": "reports/tables/peer_nlp_integrity_check.csv",
+    "size_bytes": 1235
+  },
+  {
+    "path": "reports/tables/sector_peer_data_readiness.csv",
+    "size_bytes": 204
+  },
+  {
+    "path": "reports/tables/sector_peer_fetch_log.csv",
+    "size_bytes": 4
+  },
+  {
+    "path": "reports/tables/signal_diagnostics_enhanced.csv",
+    "size_bytes": 5077
+  },
+  {
+    "path": "reports/tables/signal_validity_summary.csv",
+    "size_bytes": 16795
+  },
+  {
+    "path": "reports/tables/sqlite_roundtrip_check.csv",
+    "size_bytes": 778
+  },
+  {
+    "path": "reports/tables/sqlite_schema_summary.csv",
+    "size_bytes": 353
+  },
+  {
+    "path": "reports/tables/stock_sector_mapping.csv",
+    "size_bytes": 3452
+  },
+  {
+    "path": "reports/tables/trading_visualization_index.csv",
+    "size_bytes": 8117
+  },
+  {
+    "path": "reports/tables/walk_forward_results.csv",
+    "size_bytes": 759
+  }
+]
