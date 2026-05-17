@@ -2313,11 +2313,61 @@ def create_export_bundle(
     return result
 
 
+def workflow_phase_label(stage: object, role: object = "") -> str:
+    stage_text = str(stage or "").strip().lower()
+    role_text = str(role or "").strip().lower()
+    if role_text == "training_peer":
+        if stage_text in {"cache_ready", "waiting_for_fetch", "fetch_result", "cache_missing"} or "fetch" in stage_text:
+            return "2. Peer 数据准备"
+        if "peer_nlp" in stage_text or "corpus" in stage_text or "training" in stage_text:
+            return "3. Peer 语料/模型"
+        return "2. Peer 数据准备"
+    if stage_text in {"waiting", "starting", "preflight", "ready_local", "local_cross"} or "feasibility" in stage_text:
+        return "0. 运行前检查"
+    if stage_text in {"ingestion", "cache"}:
+        return "1. Target 数据"
+    if stage_text.startswith("sector_peer") or stage_text in {"cache_ready", "waiting_for_fetch", "fetch_result", "cache_missing"}:
+        return "2. Peer 数据准备"
+    if stage_text in {
+        "peer_nlp",
+        "peer_nlp_training_corpus",
+        "peer_nlp_peer_processing",
+        "peer_nlp_peer_processed",
+        "peer_nlp_peer_skipped",
+        "peer_nlp_model_training",
+        "peer_nlp_target_data",
+        "peer_nlp_target_scoring",
+        "peer_nlp_sentiment_saved",
+        "sentiment_baseline",
+        "waiting_for_peer_training",
+    }:
+        return "3. Peer 情绪信号"
+    if stage_text in {"market_impact_nlp", "impact_corpus", "impact_labels", "impact_target_data", "impact_scoring", "impact_saved"}:
+        return "4. Market-impact 信号"
+    if stage_text in {
+        "dqn_features",
+        "dqn_split",
+        "dqn_pretrain",
+        "dqn_without_nlp",
+        "dqn_peer_sentiment",
+        "dqn_market_impact",
+        "rl",
+    }:
+        return "5. DQN 训练/评估"
+    if stage_text in {"signals", "metrics", "save_outputs", "figures", "dashboard_cache", "cross_stock", "experiment_summary", "peer_summary", "done"}:
+        return "6. 指标/导出"
+    if stage_text == "error":
+        return "错误"
+    return "运行中"
+
+
 def render_live_status_table(status_rows: list[dict[str, object]], container) -> None:
     if not status_rows:
         return
     frame = pd.DataFrame(status_rows)
-    preferred = ["role", "symbol", "company_name", "status", "stage", "last_update", "message"]
+    if "phase" not in frame.columns:
+        frame["phase"] = frame.apply(lambda row: workflow_phase_label(row.get("stage", ""), row.get("role", "")), axis=1)
+    preferred = ["phase", "role", "symbol", "company_name", "status", "stage", "last_update", "message"]
     columns = [col for col in preferred if col in frame.columns]
     container.dataframe(frame[columns], use_container_width=True, hide_index=True)
 
@@ -2328,6 +2378,103 @@ def _status_progress(rows: list[dict[str, object]]) -> float:
     complete_states = {"ready_local", "ready", "fetched", "processed", "completed", "skipped"}
     done = sum(1 for row in rows if str(row.get("status", "")).lower() in complete_states)
     return min(max(done / len(rows), 0.0), 1.0)
+
+
+def experiment_workflow_rows(experiment_mode: str) -> pd.DataFrame:
+    rows = [
+        {
+            "阶段": "0. 运行前检查",
+            "输入": "目标股票、日期区间、本地缓存",
+            "动作": "确认目标股票在所选区间内是否可运行。",
+            "输出": "正式运行前的 ready / warning",
+        },
+        {
+            "阶段": "1. Target 数据",
+            "输入": "仅 held-out 目标股票",
+            "动作": "复用或更新目标股票的行情和新闻数据。",
+            "输出": "Target CSV；目标新闻不会用于训练自己的 NLP 模型",
+        },
+        {
+            "阶段": "2. Peer 数据准备",
+            "输入": "同板块、非目标股票 peers",
+            "动作": "自动识别同板块 peers，必要时补齐 peer 本地缓存。",
+            "输出": "训练语料候选股票；target 已剔除",
+        },
+        {
+            "阶段": "3. Peer 情绪信号",
+            "输入": "Peer 新闻文本",
+            "动作": "训练 peer sentiment scorer，再给目标股票新闻打分。",
+            "输出": "peer_nlp_daily_sentiment.csv",
+        },
+    ]
+    if experiment_mode == "market_impact":
+        rows.append(
+            {
+                "阶段": "4. Market-impact 信号",
+                "输入": "Peer 新闻 + peer 未来收益",
+                "动作": "用未来收益给 peer 新闻贴 impact 标签，训练 impact 模型，再给目标新闻打分。",
+                "输出": "peer_market_impact_daily_signal.csv",
+            }
+        )
+        rows.append(
+            {
+                "阶段": "5. DQN 训练/评估",
+                "输入": "行情特征 + sentiment / impact 信号",
+                "动作": "比较 no-NLP、peer sentiment、market-impact DQN 组。",
+                "输出": "market_impact_ablation_metrics.csv 和 portfolio curves",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "阶段": "5. DQN 训练/评估",
+                "输入": "行情特征 + peer sentiment 信号",
+                "动作": "比较 no-NLP DQN 和 sector / marketwide peer-sentiment DQN。",
+                "输出": "peer_nlp_ablation_metrics.csv 和 portfolio curves",
+            }
+        )
+    rows.append(
+        {
+            "阶段": "6. 指标/导出",
+            "输入": "已完成的实验输出",
+            "动作": "生成可靠性检查、summary 和 dashboard 下载包。",
+            "输出": "Cross-stock summary、报告片段、export zip",
+        }
+    )
+    return pd.DataFrame(rows)
+
+
+def render_experiment_workflow_overview(
+    *,
+    primary_symbol: str,
+    resolved_company: str,
+    target_info: dict[str, object],
+    training_peer_preview: pd.DataFrame,
+    experiment_mode: str,
+    market_impact_horizon_days: int,
+    market_impact_pos_threshold: float,
+    market_impact_neg_threshold: float,
+) -> None:
+    st.markdown("## Experiment Workflow")
+    summary_cols = st.columns(4)
+    summary_cols[0].metric("目标股票", primary_symbol)
+    summary_cols[1].metric("公司", resolved_company or "-")
+    summary_cols[2].metric("板块", str(target_info.get("sector", "UNKNOWN")))
+    summary_cols[3].metric("训练 peers", int(len(training_peer_preview)))
+
+    st.caption("左侧输入的股票是唯一 held-out target。同板块 peers 只用于 NLP 训练或 market-impact 标签构造，target 不进入这些 peer corpus。")
+    st.dataframe(experiment_workflow_rows(experiment_mode), use_container_width=True, hide_index=True)
+
+    if experiment_mode == "market_impact":
+        with st.expander("本次 Market-impact 标签规则", expanded=False):
+            label_rows = pd.DataFrame(
+                [
+                    {"参数": "Impact horizon days", "值": market_impact_horizon_days, "含义": "新闻后向未来看多少个交易日的收益。"},
+                    {"参数": "Positive return threshold", "值": market_impact_pos_threshold, "含义": "未来收益达到或超过该值，标为 bullish impact。"},
+                    {"参数": "Negative return threshold", "值": market_impact_neg_threshold, "含义": "未来收益达到或低于该值，标为 bearish impact。"},
+                ]
+            )
+            st.dataframe(label_rows, use_container_width=True, hide_index=True)
 
 
 def build_training_peer_status_rows(peer_symbols: list[str], start_date: object, end_date: object) -> list[dict[str, object]]:
@@ -2419,7 +2566,7 @@ def run_dashboard_preflight(symbols: list[str], start_date: object, end_date: ob
     if not summary.empty:
         status_value = summary["cross_stock_feasibility_status"].iloc[0]
         if status_value == "READY_FOR_CROSS_STOCK_ANALYSIS":
-            st.success("Preflight passed: the target stock has enough local/requested-range data to start the peer experiment.")
+            st.success("Preflight passed: the target stock has enough local/requested-range data to start the selected experiment.")
         else:
             st.warning(f"Preflight warning: {status_value}. The audit table is saved under outputs/system/reports but hidden from the dashboard run view.")
     if not audit.empty and "available_history_starts_after_requested_start" in audit.columns:
@@ -2552,6 +2699,17 @@ else:
     st.sidebar.warning(preview["message"])
 if "master_start" in preview and "master_end" in preview:
     st.sidebar.caption(f"Local cached timeline: {preview['master_start']} -> {preview['master_end']}")
+
+render_experiment_workflow_overview(
+    primary_symbol=primary_symbol,
+    resolved_company=resolved_company,
+    target_info=target_info,
+    training_peer_preview=training_peer_preview,
+    experiment_mode=experiment_mode,
+    market_impact_horizon_days=market_impact_horizon_days,
+    market_impact_pos_threshold=market_impact_pos_threshold,
+    market_impact_neg_threshold=market_impact_neg_threshold,
+)
 
 run_clicked = st.sidebar.button(f"Run target {experiment_label} experiment", type="primary", use_container_width=True)
 
@@ -2991,7 +3149,7 @@ if workflow_status_rows:
 if workflow_runs:
     st.dataframe(pd.DataFrame(workflow_runs), use_container_width=True)
     if workflow_phase_logs:
-        with st.expander("Step-by-step peer experiment log", expanded=False):
+        with st.expander("Step-by-step experiment log", expanded=False):
             st.dataframe(pd.DataFrame(workflow_phase_logs), use_container_width=True, hide_index=True)
     if workflow_failures:
         with st.expander("Failed runs"):
