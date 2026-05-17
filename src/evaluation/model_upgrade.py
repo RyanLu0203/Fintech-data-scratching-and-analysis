@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -28,24 +29,50 @@ from src.rl.train import evaluate_agent, train_dqn
 MODEL_UPGRADE_DIR = OUTPUTS_ROOT / "model_upgrade"
 MODEL_VARIANTS = ["vanilla_dqn", "double_dqn", "dueling_dqn", "double_dueling_dqn"]
 REWARD_VARIANTS = ["one_day_return", "three_day_return", "five_day_return", "risk_adjusted_return"]
-STATE_FEATURE_MODES = ["official_8d", "normalized_plus"]
+STATE_FEATURE_MODES = ["normalized_plus"]
+ACTION_MODES = ["target_position"]
 NORMALIZED_PLUS_COLUMNS = [
     "daily_return",
     "price_ma50_gap",
     "price_ma200_gap",
     "ma50_ma200_gap",
     "RSI_normalized",
-    "MACD_normalized",
+    "MACD_zscore",
     "position_ratio",
     "cash_ratio",
     "nlp_signal_score",
     "abs_nlp_signal",
     "nlp_signal_3day_mean",
-    "nlp_signal_5day_mean",
     "nlp_signal_change",
-    "relative_signal",
-    "marketwide_residual_signal",
 ]
+ENV_DYNAMICS_COLUMNS = [
+    "run_id",
+    "run_mode",
+    "period",
+    "training_mode",
+    "episode",
+    "step",
+    "date",
+    "raw_action_id",
+    "action_mode",
+    "target_exposure",
+    "current_exposure_before",
+    "current_exposure_after",
+    "mapped_action_label",
+    "action",
+    "price",
+    "cash_before",
+    "shares_before",
+    "portfolio_before",
+    "cash_after",
+    "shares_after",
+    "portfolio_after",
+    "position_ratio_after",
+    "cash_ratio_after",
+    "reward",
+    "transaction_cost",
+]
+RUN_METADATA_COLUMNS = ["run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "reward_variant", "state_feature_mode"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +83,7 @@ class ModelUpgradeRunConfig:
     end_date: str = "2026-04-30"
     max_seeds: int = 20
     quick_test: bool = False
+    medium_test: bool = False
     episodes: int = 200
     initial_cash: float = 1_000_000.0
     transaction_cost: float = 0.001
@@ -63,13 +91,18 @@ class ModelUpgradeRunConfig:
 
 def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
     MODEL_UPGRADE_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    run_mode = "quick_test" if config.quick_test else "medium_test" if config.medium_test else "full_grid"
     log_lines = [
         "# Model Upgrade Run Log",
         "",
         f"- target_symbol: {config.target_symbol}",
         f"- target_company: {config.target_company}",
         f"- window: {config.start_date} -> {config.end_date}",
-        f"- quick_test: {config.quick_test}",
+        f"- run_mode: {run_mode}",
+        f"- timestamp: {timestamp}",
+        f"- official_baseline_action_mode: discrete_trade",
+        f"- model_upgrade_default_action_mode: target_position",
         "",
     ]
     input_csv = _resolve_target_input_csv(config)
@@ -82,14 +115,32 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
         _write_empty_outputs(log_lines)
         raise FileNotFoundError("Run the official target experiment before model upgrade grid. Missing: " + ", ".join(missing))
 
-    model_variants = ["vanilla_dqn", "double_dueling_dqn"] if config.quick_test else MODEL_VARIANTS
-    reward_variants = ["one_day_return"] if config.quick_test else REWARD_VARIANTS
-    state_modes = ["official_8d"] if config.quick_test else STATE_FEATURE_MODES
-    seeds = [1, 2] if config.quick_test else list(range(1, int(config.max_seeds) + 1))
-    episodes = 5 if config.quick_test else int(config.episodes)
+    if config.quick_test:
+        model_variants = ["vanilla_dqn", "double_dueling_dqn"]
+        reward_variants = ["one_day_return"]
+        state_modes = ["normalized_plus"]
+        action_modes = ["target_position"]
+        seeds = [1, 2]
+        episodes = 5
+    elif config.medium_test:
+        model_variants = ["vanilla_dqn", "double_dueling_dqn"]
+        reward_variants = ["one_day_return", "three_day_return"]
+        state_modes = ["normalized_plus"]
+        action_modes = ["target_position"]
+        seeds = [1, 2, 3, 4, 5]
+        episodes = 50
+    else:
+        model_variants = MODEL_VARIANTS
+        reward_variants = REWARD_VARIANTS
+        state_modes = STATE_FEATURE_MODES
+        action_modes = ACTION_MODES
+        seeds = list(range(1, int(config.max_seeds) + 1))
+        episodes = int(config.episodes)
+    effective_max_seeds = len(seeds)
     log_lines.append(f"- model_variants: {model_variants}")
     log_lines.append(f"- reward_variants: {reward_variants}")
     log_lines.append(f"- state_feature_modes: {state_modes}")
+    log_lines.append(f"- action_modes: {action_modes}")
     log_lines.append(f"- seeds: {seeds}")
     log_lines.append(f"- episodes: {episodes}")
     log_lines.append("")
@@ -113,140 +164,156 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
     seed_rows: list[dict[str, object]] = []
     action_rows: list[dict[str, object]] = []
     state_diag_rows: list[dict[str, object]] = []
+    env_dynamics_rows: list[dict[str, object]] = []
+    exploration_rows: list[dict[str, object]] = []
+    portfolio_rows: list[dict[str, object]] = []
     for model_variant in model_variants:
         for reward_variant in reward_variants:
             for state_mode in state_modes:
                 prepared = _prepare_group_frames(fine_tune_frame, test_frame, state_mode, log_lines)
                 state_columns = NORMALIZED_PLUS_COLUMNS if state_mode == "normalized_plus" else UNIFIED_DQN_STATE_COLUMNS
-                for experiment, frames in prepared.items():
-                    _append_state_diagnostics(
-                        state_diag_rows,
-                        target_symbol=config.target_symbol,
+                for action_mode in action_modes:
+                    metadata_base = _metadata(
+                        run_mode=run_mode,
+                        episodes=episodes,
+                        max_seeds=effective_max_seeds,
+                        timestamp=timestamp,
+                        action_mode=action_mode,
                         model_variant=model_variant,
                         reward_variant=reward_variant,
                         state_feature_mode=state_mode,
-                        experiment=experiment,
-                        train_frame=frames["train"],
-                        test_frame=frames["test"],
-                        state_columns=state_columns,
                     )
-                for seed in seeds:
-                    pretrained_state = None
-                    pretrain_scaler = None
-                    if len(pretrain_frame) >= 3:
-                        pretrain_prepared = _prepare_single_frame_pair(pretrain_frame, pretrain_frame, None, state_mode, log_lines)
-                        pretrain_data = pretrain_prepared["train"]
-                        pretrain_columns = state_columns
-                        pretrain_config = _dqn_config(pretrain_columns, seed, model_variant, reward_variant, state_mode)
-                        pretrained = train_dqn(
-                            pretrain_data,
-                            pretrain_columns,
-                            episodes=episodes,
-                            initial_cash=config.initial_cash,
-                            transaction_cost=config.transaction_cost,
-                            experiment="model_upgrade_shared_pretrain",
-                            output_dir=None,
-                            seed=seed,
-                            dqn_config=pretrain_config,
-                            reward_variant=reward_variant,
-                        )
-                        pretrained_state = {key: value.detach().clone() for key, value in pretrained["agent"].online.state_dict().items()}
-                        pretrain_scaler = pretrained.get("state_scaler")
                     for experiment, frames in prepared.items():
-                        run_id = f"{config.target_symbol}_{model_variant}_{reward_variant}_{state_mode}_seed{seed}"
-                        dqn_config = _dqn_config(state_columns, seed, model_variant, reward_variant, state_mode)
-                        trained = train_dqn(
-                            frames["train"],
-                            state_columns,
-                            episodes=episodes,
-                            initial_cash=config.initial_cash,
-                            transaction_cost=config.transaction_cost,
+                        _append_state_diagnostics(
+                            state_diag_rows,
+                            target_symbol=config.target_symbol,
                             experiment=experiment,
-                            output_dir=None,
-                            seed=seed,
-                            dqn_config=dqn_config,
-                            reward_variant=reward_variant,
-                            initial_state_dict=pretrained_state,
-                            initial_epsilon=0.30 if pretrained_state is not None else None,
-                            state_scaler=pretrain_scaler,
+                            train_frame=frames["train"],
+                            test_frame=frames["test"],
+                            state_columns=state_columns,
+                            metadata=metadata_base,
                         )
-                        log = evaluate_agent(
-                            trained["agent"],
-                            frames["test"],
-                            state_columns,
-                            initial_cash=config.initial_cash,
-                            transaction_cost=config.transaction_cost,
-                            experiment=experiment,
-                            seed=seed,
-                            reward_variant=reward_variant,
-                            state_scaler=trained.get("state_scaler"),
-                        )
-                        metrics = _add_behavior_metrics(_metrics_from_log(experiment, log, config.initial_cash, seed), log)
-                        counts = _action_counts(log)
-                        seed_rows.append(
-                            {
-                                "run_id": run_id,
-                                "target_symbol": config.target_symbol,
-                                "experiment": experiment,
-                                "model_variant": model_variant,
-                                "reward_variant": reward_variant,
-                                "state_feature_mode": state_mode,
-                                "seed": seed,
-                                "final_equity": metrics.get("final_equity"),
-                                "cumulative_return": metrics.get("cumulative_return"),
-                                "annualized_return": metrics.get("annualized_return"),
-                                "annualized_volatility": metrics.get("annualized_volatility"),
-                                "sharpe_ratio": metrics.get("sharpe_ratio"),
-                                "max_drawdown": metrics.get("max_drawdown"),
-                                "number_of_trades": metrics.get("number_of_trades"),
-                                "win_rate": metrics.get("win_rate"),
-                                "exposure_ratio": metrics.get("exposure_ratio"),
-                                "turnover": metrics.get("turnover"),
-                                "action_hold_count": counts["hold_count"],
-                                "action_buy_count": counts["buy_count"],
-                                "action_sell_count": counts["sell_count"],
-                            }
-                        )
-                        total = max(counts["total_actions"], 1)
-                        action_rows.append(
-                            {
-                                "run_id": run_id,
-                                "target_symbol": config.target_symbol,
-                                "experiment": experiment,
-                                "model_variant": model_variant,
-                                "reward_variant": reward_variant,
-                                "state_feature_mode": state_mode,
-                                "seed": seed,
-                                "period": "test",
-                                **counts,
-                                "hold_ratio": counts["hold_count"] / total,
-                                "buy_ratio": counts["buy_count"] / total,
-                                "sell_ratio": counts["sell_count"] / total,
-                            }
-                        )
-                        log_lines.append(
-                            f"- {run_id}: final_equity={metrics.get('final_equity')}, "
-                            f"trades={metrics.get('number_of_trades')}, exposure={metrics.get('exposure_ratio')}"
-                        )
+                    for seed in seeds:
+                        pretrained_state = None
+                        pretrain_scaler = None
+                        if len(pretrain_frame) >= 3:
+                            pretrain_prepared = _prepare_single_frame_pair(pretrain_frame, pretrain_frame, None, state_mode, log_lines)
+                            pretrain_data = pretrain_prepared["train"]
+                            pretrain_columns = state_columns
+                            pretrain_config = _dqn_config(pretrain_columns, seed, model_variant, reward_variant, state_mode, action_mode)
+                            pretrained = train_dqn(
+                                pretrain_data,
+                                pretrain_columns,
+                                episodes=episodes,
+                                initial_cash=config.initial_cash,
+                                transaction_cost=config.transaction_cost,
+                                experiment="model_upgrade_shared_pretrain",
+                                output_dir=None,
+                                seed=seed,
+                                dqn_config=pretrain_config,
+                                reward_variant=reward_variant,
+                                action_mode=action_mode,
+                            )
+                            pretrained_state = {key: value.detach().clone() for key, value in pretrained["agent"].online.state_dict().items()}
+                            pretrain_scaler = pretrained.get("state_scaler")
+                        for experiment, frames in prepared.items():
+                            run_id = f"{config.target_symbol}_{model_variant}_{reward_variant}_{state_mode}_{action_mode}_{experiment}_seed{seed}"
+                            dqn_config = _dqn_config(state_columns, seed, model_variant, reward_variant, state_mode, action_mode)
+                            trained = train_dqn(
+                                frames["train"],
+                                state_columns,
+                                episodes=episodes,
+                                initial_cash=config.initial_cash,
+                                transaction_cost=config.transaction_cost,
+                                experiment=experiment,
+                                output_dir=None,
+                                seed=seed,
+                                dqn_config=dqn_config,
+                                reward_variant=reward_variant,
+                                action_mode=action_mode,
+                                initial_state_dict=pretrained_state,
+                                initial_epsilon=0.30 if pretrained_state is not None else None,
+                                state_scaler=pretrain_scaler,
+                            )
+                            log = evaluate_agent(
+                                trained["agent"],
+                                frames["test"],
+                                state_columns,
+                                initial_cash=config.initial_cash,
+                                transaction_cost=config.transaction_cost,
+                                experiment=experiment,
+                                seed=seed,
+                                reward_variant=reward_variant,
+                                state_scaler=trained.get("state_scaler"),
+                                action_mode=action_mode,
+                            )
+                            metrics = _add_behavior_metrics(_metrics_from_log(experiment, log, config.initial_cash, seed), log)
+                            counts = _action_counts(log)
+                            average_exposure = _average_exposure(log)
+                            unique_portfolio_values = _unique_portfolio_values(log)
+                            row_metadata = {**metadata_base, "run_id": run_id, "target_symbol": config.target_symbol, "experiment": experiment, "seed": seed}
+                            seed_rows.append(
+                                {
+                                    **row_metadata,
+                                    "final_equity": metrics.get("final_equity"),
+                                    "cumulative_return": metrics.get("cumulative_return"),
+                                    "annualized_return": metrics.get("annualized_return"),
+                                    "annualized_volatility": metrics.get("annualized_volatility"),
+                                    "sharpe_ratio": metrics.get("sharpe_ratio"),
+                                    "max_drawdown": metrics.get("max_drawdown"),
+                                    "number_of_trades": metrics.get("number_of_trades"),
+                                    "win_rate": metrics.get("win_rate"),
+                                    "exposure_ratio": metrics.get("exposure_ratio"),
+                                    "average_exposure": average_exposure,
+                                    "turnover": metrics.get("turnover"),
+                                    "unique_portfolio_values": unique_portfolio_values,
+                                    "hold_ratio": counts["hold_count"] / max(counts["total_actions"], 1),
+                                    "action_hold_count": counts["hold_count"],
+                                    "action_buy_count": counts["buy_count"],
+                                    "action_sell_count": counts["sell_count"],
+                                }
+                            )
+                            action_rows.extend(_action_distribution_rows(log, row_metadata))
+                            env_dynamics_rows.extend(_env_dynamics_rows(log, row_metadata))
+                            exploration_rows.extend(_exploration_rows(trained.get("exploration_diagnostics"), row_metadata))
+                            portfolio_rows.extend(_portfolio_rows(log, row_metadata))
+                            log_lines.append(
+                                f"- {run_id}: final_equity={metrics.get('final_equity')}, "
+                                f"trades={metrics.get('number_of_trades')}, avg_exposure={average_exposure}, "
+                                f"actions={counts}"
+                            )
 
     seed_df = pd.DataFrame(seed_rows)
     action_df = pd.DataFrame(action_rows)
     state_diag_df = pd.DataFrame(state_diag_rows)
+    env_order = ["target_symbol", "experiment", "seed"] + ENV_DYNAMICS_COLUMNS + [column for column in RUN_METADATA_COLUMNS if column not in ENV_DYNAMICS_COLUMNS]
+    env_dynamics_df = pd.DataFrame(env_dynamics_rows)
+    if not env_dynamics_df.empty:
+        env_dynamics_df = env_dynamics_df[[column for column in env_order if column in env_dynamics_df.columns] + [column for column in env_dynamics_df.columns if column not in env_order]]
+    exploration_df = pd.DataFrame(exploration_rows)
+    portfolio_df = pd.DataFrame(portfolio_rows)
     summary_df = _model_summary(seed_df)
     reward_df = _reward_comparison(seed_df)
+    _append_acceptance_status(log_lines, seed_df, action_df, portfolio_df, run_mode)
     paths = {
         "seed_metrics": MODEL_UPGRADE_DIR / "seed_level_metrics.csv",
         "summary": MODEL_UPGRADE_DIR / "model_upgrade_summary.csv",
         "actions": MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv",
+        "env_dynamics": MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv",
+        "exploration": MODEL_UPGRADE_DIR / "exploration_diagnostics.csv",
+        "portfolio_curves": MODEL_UPGRADE_DIR / "portfolio_curves.csv",
         "reward_comparison": MODEL_UPGRADE_DIR / "reward_variant_comparison.csv",
         "state_features": MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv",
         "log": MODEL_UPGRADE_DIR / "upgrade_run_log.md",
     }
-    seed_df.to_csv(paths["seed_metrics"], index=False, encoding="utf-8-sig")
-    summary_df.to_csv(paths["summary"], index=False, encoding="utf-8-sig")
-    action_df.to_csv(paths["actions"], index=False, encoding="utf-8-sig")
-    reward_df.to_csv(paths["reward_comparison"], index=False, encoding="utf-8-sig")
-    state_diag_df.to_csv(paths["state_features"], index=False, encoding="utf-8-sig")
+    _write_run_mode_output(paths["seed_metrics"], seed_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["summary"], summary_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["actions"], action_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["env_dynamics"], env_dynamics_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["exploration"], exploration_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["portfolio_curves"], portfolio_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["reward_comparison"], reward_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["state_features"], state_diag_df, config.target_symbol, run_mode)
     paths["log"].write_text("\n".join(log_lines) + "\n", encoding="utf-8")
     return paths
 
@@ -313,19 +380,15 @@ def _add_normalized_plus_features(
         frame["price_ma200_gap"] = (price / ma200 - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         frame["ma50_ma200_gap"] = (ma50 / ma200 - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         frame["RSI_normalized"] = (_numeric(frame, "RSI") / 100.0).fillna(0.0)
-        frame["MACD_normalized"] = ((_numeric(frame, "MACD") - macd_mean) / macd_std).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        frame["MACD_zscore"] = ((_numeric(frame, "MACD") - macd_mean) / macd_std).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         frame["position_ratio"] = 0.0
         frame["cash_ratio"] = 1.0
         frame["abs_nlp_signal"] = signal.abs()
         frame["nlp_signal_3day_mean"] = signal.rolling(3, min_periods=1).mean()
-        frame["nlp_signal_5day_mean"] = signal.rolling(5, min_periods=1).mean()
         frame["nlp_signal_change"] = signal.diff().fillna(0.0)
-        frame["relative_signal"] = 0.0
-        frame["marketwide_residual_signal"] = 0.0
         if signal_column and _paired_signal_columns(signal_column):
             sector_col, market_col = _paired_signal_columns(signal_column)
             if sector_col in frame.columns and market_col in frame.columns:
-                frame["relative_signal"] = _numeric(frame, sector_col) - _numeric(frame, market_col)
                 if beta is not None:
                     frame["marketwide_residual_signal"] = _numeric(frame, market_col) - beta * _numeric(frame, sector_col)
             else:
@@ -360,13 +423,14 @@ def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(frame.get(column, pd.Series(0.0, index=frame.index)), errors="coerce").fillna(0.0)
 
 
-def _dqn_config(state_columns: Iterable[str], seed: int, model_variant: str, reward_variant: str, state_mode: str) -> DQNConfig:
+def _dqn_config(state_columns: Iterable[str], seed: int, model_variant: str, reward_variant: str, state_mode: str, action_mode: str) -> DQNConfig:
     return DQNConfig(
         state_dim=len(list(state_columns)),
         seed=seed,
         model_variant=model_variant,
         reward_variant=reward_variant,
         state_feature_mode=state_mode,
+        action_mode=action_mode,
     )
 
 
@@ -374,23 +438,20 @@ def _append_state_diagnostics(
     rows: list[dict[str, object]],
     *,
     target_symbol: str,
-    model_variant: str,
-    reward_variant: str,
-    state_feature_mode: str,
     experiment: str,
     train_frame: pd.DataFrame,
     test_frame: pd.DataFrame,
     state_columns: list[str],
+    metadata: dict[str, object],
 ) -> None:
     for period, frame in [("train", train_frame), ("test", test_frame)]:
         for feature in state_columns:
             values = pd.to_numeric(frame.get(feature, pd.Series(dtype=float)), errors="coerce")
             rows.append(
                 {
-                    "run_id": f"{target_symbol}_{model_variant}_{reward_variant}_{state_feature_mode}_{experiment}_{period}",
-                    "model_variant": model_variant,
-                    "reward_variant": reward_variant,
-                    "state_feature_mode": state_feature_mode,
+                    **metadata,
+                    "run_id": f"{target_symbol}_{metadata['model_variant']}_{metadata['reward_variant']}_{metadata['state_feature_mode']}_{metadata['action_mode']}_{experiment}_{period}",
+                    "target_symbol": target_symbol,
                     "experiment": experiment,
                     "period": period,
                     "feature_name": feature,
@@ -414,10 +475,176 @@ def _action_counts(log: pd.DataFrame) -> dict[str, int]:
     }
 
 
+def _metadata(
+    *,
+    run_mode: str,
+    episodes: int,
+    max_seeds: int,
+    timestamp: str,
+    action_mode: str,
+    model_variant: str,
+    reward_variant: str,
+    state_feature_mode: str,
+) -> dict[str, object]:
+    return {
+        "run_mode": run_mode,
+        "episodes": int(episodes),
+        "max_seeds": int(max_seeds),
+        "timestamp": timestamp,
+        "action_mode": action_mode,
+        "model_variant": model_variant,
+        "reward_variant": reward_variant,
+        "state_feature_mode": state_feature_mode,
+    }
+
+
+def _average_exposure(log: pd.DataFrame) -> float:
+    values = pd.to_numeric(log.get("current_exposure_after", log.get("position_ratio_after", pd.Series(dtype=float))), errors="coerce")
+    return float(values.dropna().mean()) if values.notna().any() else 0.0
+
+
+def _unique_portfolio_values(log: pd.DataFrame) -> int:
+    values = pd.to_numeric(log.get("portfolio_value", log.get("portfolio_after", pd.Series(dtype=float))), errors="coerce").dropna()
+    if values.empty:
+        return 0
+    return int(values.round(6).nunique())
+
+
+def _action_distribution_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[dict[str, object]]:
+    if log.empty:
+        return []
+    frame = log.copy()
+    for column in ["raw_action_id", "target_exposure", "current_exposure_before", "current_exposure_after"]:
+        if column not in frame.columns:
+            frame[column] = np.nan
+    if "mapped_action_label" not in frame.columns:
+        frame["mapped_action_label"] = frame.get("action", "Hold")
+    rows: list[dict[str, object]] = []
+    total = max(len(frame), 1)
+    grouped = frame.groupby(["raw_action_id", "mapped_action_label"], dropna=False)
+    for (raw_action_id, mapped_action_label), part in grouped:
+        label = str(mapped_action_label)
+        rows.append(
+            {
+                **metadata,
+                "period": "test",
+                "raw_action_id": raw_action_id,
+                "target_exposure": float(pd.to_numeric(part["target_exposure"], errors="coerce").mean()),
+                "current_exposure_before": float(pd.to_numeric(part["current_exposure_before"], errors="coerce").mean()),
+                "current_exposure_after": float(pd.to_numeric(part["current_exposure_after"], errors="coerce").mean()),
+                "mapped_action_label": label,
+                "hold_count": int((part["mapped_action_label"].astype(str) == "Hold").sum()),
+                "buy_count": int((part["mapped_action_label"].astype(str) == "Buy").sum()),
+                "sell_count": int((part["mapped_action_label"].astype(str) == "Sell").sum()),
+                "total_actions": int(len(part)),
+                "hold_ratio": int((part["mapped_action_label"].astype(str) == "Hold").sum()) / total,
+                "buy_ratio": int((part["mapped_action_label"].astype(str) == "Buy").sum()) / total,
+                "sell_ratio": int((part["mapped_action_label"].astype(str) == "Sell").sum()) / total,
+            }
+        )
+    return rows
+
+
+def _env_dynamics_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[dict[str, object]]:
+    if log.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    for _, item in log.iterrows():
+        row = {**metadata, "run_id": metadata["run_id"], "target_symbol": metadata["target_symbol"], "experiment": metadata["experiment"], "seed": metadata["seed"]}
+        row.update(
+            {
+                "period": "test",
+                "training_mode": bool(item.get("training_mode", False)),
+                "episode": int(item.get("episode", 0) or 0),
+                "step": int(item.get("step", 0) or 0),
+                "date": item.get("date"),
+                "raw_action_id": item.get("raw_action_id"),
+                "target_exposure": item.get("target_exposure"),
+                "current_exposure_before": item.get("current_exposure_before"),
+                "current_exposure_after": item.get("current_exposure_after"),
+                "mapped_action_label": item.get("mapped_action_label", item.get("action")),
+                "action": item.get("action"),
+                "price": item.get("price"),
+                "cash_before": item.get("cash_before"),
+                "shares_before": item.get("shares_before"),
+                "portfolio_before": item.get("portfolio_before"),
+                "cash_after": item.get("cash_after"),
+                "shares_after": item.get("shares_after"),
+                "portfolio_after": item.get("portfolio_after"),
+                "position_ratio_after": item.get("position_ratio_after"),
+                "cash_ratio_after": item.get("cash_ratio_after"),
+                "reward": item.get("reward"),
+                "transaction_cost": item.get("transaction_cost"),
+            }
+        )
+        rows.append(row)
+    return rows
+
+
+def _exploration_rows(exploration: object, metadata: dict[str, object]) -> list[dict[str, object]]:
+    if not isinstance(exploration, pd.DataFrame) or exploration.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    for _, item in exploration.iterrows():
+        row = {**metadata, "run_id": metadata["run_id"], "target_symbol": metadata["target_symbol"], "experiment": metadata["experiment"], "seed": metadata["seed"]}
+        for column in ["episode", "epsilon", "random_action_count", "greedy_action_count", "buy_count", "sell_count", "hold_count", "average_exposure"]:
+            row[column] = item.get(column)
+        rows.append(row)
+    return rows
+
+
+def _portfolio_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[dict[str, object]]:
+    if log.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    for _, item in log.iterrows():
+        rows.append(
+            {
+                **metadata,
+                "date": item.get("date"),
+                "portfolio_value": item.get("portfolio_value", item.get("portfolio_after")),
+                "current_exposure_after": item.get("current_exposure_after", item.get("position_ratio_after")),
+                "raw_action_id": item.get("raw_action_id"),
+                "mapped_action_label": item.get("mapped_action_label", item.get("action")),
+            }
+        )
+    return rows
+
+
+def _append_acceptance_status(
+    log_lines: list[str],
+    seed_df: pd.DataFrame,
+    action_df: pd.DataFrame,
+    portfolio_df: pd.DataFrame,
+    run_mode: str,
+) -> None:
+    log_lines.append("")
+    log_lines.append("## Acceptance Status")
+    if seed_df.empty:
+        log_lines.append("- No seed metrics were produced.")
+        return
+    tp_seed = seed_df[seed_df["action_mode"].astype(str) == "target_position"].copy() if "action_mode" in seed_df.columns else pd.DataFrame()
+    has_buy = bool((pd.to_numeric(tp_seed.get("action_buy_count", pd.Series(dtype=float)), errors="coerce") > 0).any())
+    has_sell = bool((pd.to_numeric(tp_seed.get("action_sell_count", pd.Series(dtype=float)), errors="coerce") > 0).any())
+    log_lines.append(f"- target_position_buy_count_positive: {has_buy}")
+    log_lines.append(f"- target_position_sell_count_positive: {has_sell}")
+    if run_mode == "medium_test":
+        average_exposure_ok = bool((pd.to_numeric(tp_seed.get("average_exposure", pd.Series(dtype=float)), errors="coerce") > 0.10).any())
+        hold_ratio_ok = bool((pd.to_numeric(tp_seed.get("hold_ratio", pd.Series(dtype=float)), errors="coerce") < 0.90).any())
+        unique_values_ok = bool((pd.to_numeric(tp_seed.get("unique_portfolio_values", pd.Series(dtype=float)), errors="coerce") > 10).any())
+        log_lines.append(f"- average_exposure_above_0_10: {average_exposure_ok}")
+        log_lines.append(f"- hold_ratio_below_0_90: {hold_ratio_ok}")
+        log_lines.append(f"- unique_portfolio_values_above_10: {unique_values_ok}")
+        if not all([has_buy, has_sell, average_exposure_ok, hold_ratio_ok, unique_values_ok]):
+            log_lines.append("- Environment runs, but policy remains hold-heavy.")
+    elif run_mode == "quick_test" and not all([has_buy, has_sell]):
+        log_lines.append("- Environment runs, but policy remains hold-heavy.")
+
+
 def _model_summary(seed_df: pd.DataFrame) -> pd.DataFrame:
     if seed_df.empty:
         return pd.DataFrame()
-    grouped = seed_df.groupby(["target_symbol", "experiment", "model_variant", "reward_variant", "state_feature_mode"], dropna=False)
+    grouped = seed_df.groupby(["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "reward_variant", "state_feature_mode"], dropna=False)
     return grouped.agg(
         seed_count=("seed", "nunique"),
         mean_final_equity=("final_equity", "mean"),
@@ -429,14 +656,16 @@ def _model_summary(seed_df: pd.DataFrame) -> pd.DataFrame:
         mean_max_drawdown=("max_drawdown", "mean"),
         mean_number_of_trades=("number_of_trades", "mean"),
         mean_exposure_ratio=("exposure_ratio", "mean"),
+        mean_average_exposure=("average_exposure", "mean"),
         mean_turnover=("turnover", "mean"),
+        mean_unique_portfolio_values=("unique_portfolio_values", "mean"),
     ).reset_index()
 
 
 def _reward_comparison(seed_df: pd.DataFrame) -> pd.DataFrame:
     if seed_df.empty:
         return pd.DataFrame()
-    grouped = seed_df.groupby(["target_symbol", "experiment", "model_variant", "state_feature_mode", "reward_variant"], dropna=False)
+    grouped = seed_df.groupby(["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "state_feature_mode", "reward_variant"], dropna=False)
     return grouped.agg(
         seed_count=("seed", "nunique"),
         mean_final_equity=("final_equity", "mean"),
@@ -452,6 +681,27 @@ def _write_empty_outputs(log_lines: list[str]) -> None:
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "seed_level_metrics.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "model_upgrade_summary.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv", index=False)
+    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv", index=False)
+    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv", index=False)
+    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv", index=False)
     (MODEL_UPGRADE_DIR / "upgrade_run_log.md").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+
+
+def _write_run_mode_output(path: Path, frame: pd.DataFrame, target_symbol: str, run_mode: str) -> None:
+    if path.exists():
+        try:
+            previous = pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            previous = pd.DataFrame()
+    else:
+        previous = pd.DataFrame()
+    if not previous.empty and {"target_symbol", "run_mode"}.issubset(previous.columns):
+        keep = ~(
+            previous["target_symbol"].astype(str).str.zfill(6).eq(str(target_symbol).zfill(6))
+            & previous["run_mode"].astype(str).eq(str(run_mode))
+        )
+        previous = previous[keep].copy()
+    output = pd.concat([previous, frame], ignore_index=True, sort=False) if not previous.empty else frame
+    output.to_csv(path, index=False, encoding="utf-8-sig")

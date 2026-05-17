@@ -2252,6 +2252,9 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
     summary = safe_read_csv(MODEL_UPGRADE_DIR / "model_upgrade_summary.csv")
     seed_metrics = safe_read_csv(MODEL_UPGRADE_DIR / "seed_level_metrics.csv")
     actions = safe_read_csv(MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv")
+    env_dynamics = safe_read_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv")
+    exploration = safe_read_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv")
+    portfolio = safe_read_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv")
     reward_compare = safe_read_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv")
     state_features = safe_read_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv")
 
@@ -2266,6 +2269,12 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
         seed_metrics = seed_metrics[seed_metrics["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
     if "target_symbol" in actions.columns:
         actions = actions[actions["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in env_dynamics.columns:
+        env_dynamics = env_dynamics[env_dynamics["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in exploration.columns:
+        exploration = exploration[exploration["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in portfolio.columns:
+        portfolio = portfolio[portfolio["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
     if "target_symbol" in reward_compare.columns:
         reward_compare = reward_compare[reward_compare["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
 
@@ -2273,19 +2282,39 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
         st.info("No model upgrade results found. Run scripts/run_model_upgrade_grid.py first.")
         return
 
-    selector_cols = st.columns(3)
+    selector_cols = st.columns(6)
+    run_options = sorted(seed_metrics["run_mode"].dropna().astype(str).unique().tolist()) if "run_mode" in seed_metrics.columns else []
+    action_mode_options = sorted(seed_metrics["action_mode"].dropna().astype(str).unique().tolist()) if "action_mode" in seed_metrics.columns else []
     model_options = sorted(seed_metrics["model_variant"].dropna().astype(str).unique().tolist()) if "model_variant" in seed_metrics.columns else []
     reward_options = sorted(seed_metrics["reward_variant"].dropna().astype(str).unique().tolist()) if "reward_variant" in seed_metrics.columns else []
     state_options = sorted(seed_metrics["state_feature_mode"].dropna().astype(str).unique().tolist()) if "state_feature_mode" in seed_metrics.columns else []
-    selected_model = selector_cols[0].selectbox("model_variant", model_options, index=0) if model_options else ""
-    selected_reward = selector_cols[1].selectbox("reward_variant", reward_options, index=0) if reward_options else ""
-    selected_state = selector_cols[2].selectbox("state_feature_mode", state_options, index=0) if state_options else ""
+    selected_run_mode = selector_cols[0].selectbox("run_mode", run_options, index=0) if run_options else ""
+    selected_action_mode = selector_cols[1].selectbox("action_mode", action_mode_options, index=0) if action_mode_options else ""
+    selected_model = selector_cols[2].selectbox("model_variant", model_options, index=0) if model_options else ""
+    selected_reward = selector_cols[3].selectbox("reward_variant", reward_options, index=0) if reward_options else ""
+    selected_state = selector_cols[4].selectbox("state_feature_mode", state_options, index=0) if state_options else ""
+    episode_options = sorted(seed_metrics["episodes"].dropna().astype(str).unique().tolist()) if "episodes" in seed_metrics.columns else []
+    selected_episodes = selector_cols[5].selectbox("episodes", episode_options, index=0) if episode_options else ""
+
+    if selected_run_mode == "quick_test":
+        st.warning("quick-test = code validation only")
+    elif selected_run_mode == "medium_test":
+        st.warning("MEDIUM TEST - PRELIMINARY, NOT FINAL")
+    elif selected_run_mode == "full_grid":
+        st.info("full-grid = formal comparison")
 
     def _filter(frame: pd.DataFrame) -> pd.DataFrame:
         if frame.empty:
             return frame
         out = frame.copy()
-        for column, value in [("model_variant", selected_model), ("reward_variant", selected_reward), ("state_feature_mode", selected_state)]:
+        for column, value in [
+            ("run_mode", selected_run_mode),
+            ("action_mode", selected_action_mode),
+            ("model_variant", selected_model),
+            ("reward_variant", selected_reward),
+            ("state_feature_mode", selected_state),
+            ("episodes", selected_episodes),
+        ]:
             if column in out.columns and value:
                 out = out[out[column].astype(str) == str(value)]
         return out
@@ -2293,24 +2322,81 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
     filtered_seed = _filter(seed_metrics)
     filtered_summary = _filter(summary)
     filtered_actions = _filter(actions)
+    filtered_env = _filter(env_dynamics)
+    filtered_exploration = _filter(exploration)
+    filtered_portfolio = _filter(portfolio)
 
     st.markdown("#### Seed-level final equity")
     _render_box_or_table(filtered_seed, metric="final_equity")
     st.markdown("#### Seed-level Sharpe ratio")
     _render_box_or_table(filtered_seed, metric="sharpe_ratio")
 
+    if not filtered_seed.empty:
+        meta_cols = [col for col in ["run_mode", "episodes", "action_mode", "model_variant", "reward_variant", "state_feature_mode", "experiment", "seed", "action_buy_count", "action_sell_count", "action_hold_count", "average_exposure", "unique_portfolio_values"] if col in filtered_seed.columns]
+        st.markdown("#### Seed behavior summary")
+        st.dataframe(filtered_seed[meta_cols].head(200), use_container_width=True, hide_index=True)
+
     if not filtered_actions.empty and {"experiment", "hold_ratio", "buy_ratio", "sell_ratio"}.issubset(filtered_actions.columns):
         action_plot = filtered_actions.copy()
-        for column in ["hold_ratio", "buy_ratio", "sell_ratio"]:
-            action_plot[column] = pd.to_numeric(action_plot[column], errors="coerce")
-        action_frame = action_plot.groupby("experiment")[["hold_ratio", "buy_ratio", "sell_ratio"]].mean().rename(index=_display_experiment_name)
+        for column in ["hold_count", "buy_count", "sell_count", "total_actions"]:
+            action_plot[column] = pd.to_numeric(action_plot.get(column, 0), errors="coerce").fillna(0)
+        action_counts = action_plot.groupby("experiment")[["hold_count", "buy_count", "sell_count", "total_actions"]].sum()
+        denominator = action_counts["total_actions"].replace(0, np.nan)
+        action_frame = pd.DataFrame(
+            {
+                "hold_ratio": action_counts["hold_count"] / denominator,
+                "buy_ratio": action_counts["buy_count"] / denominator,
+                "sell_ratio": action_counts["sell_count"] / denominator,
+            }
+        ).rename(index=_display_experiment_name)
         render_multi_series(action_frame, title="Average action distribution by experiment", kind="bar", height=340)
+        if "raw_action_id" in filtered_actions.columns:
+            raw = filtered_actions.copy()
+            raw["raw_action_id"] = raw["raw_action_id"].astype(str)
+            raw["total_actions"] = pd.to_numeric(raw.get("total_actions", 0), errors="coerce")
+            raw_frame = raw.groupby("raw_action_id")["total_actions"].sum().to_frame("count")
+            render_multi_series(raw_frame, title="Raw target-position action distribution", kind="bar", color_map={"count": PALETTE["blue"]}, height=280)
+            st.dataframe(filtered_actions.head(200), use_container_width=True, hide_index=True)
 
     if not filtered_seed.empty and {"experiment", "exposure_ratio"}.issubset(filtered_seed.columns):
         exposure = filtered_seed.copy()
         exposure["exposure_ratio"] = pd.to_numeric(exposure["exposure_ratio"], errors="coerce")
-        exposure_frame = exposure.groupby("experiment")["exposure_ratio"].mean().to_frame("exposure_ratio").rename(index=_display_experiment_name)
-        render_multi_series(exposure_frame, title="Mean exposure ratio by experiment", kind="bar", color_map={"exposure_ratio": PALETTE["teal"]}, height=300)
+        exposure_column = "average_exposure" if "average_exposure" in exposure.columns else "exposure_ratio"
+        exposure[exposure_column] = pd.to_numeric(exposure[exposure_column], errors="coerce")
+        exposure_frame = exposure.groupby("experiment")[exposure_column].mean().to_frame("average_exposure").rename(index=_display_experiment_name)
+        render_multi_series(exposure_frame, title="Average exposure by strategy", kind="bar", color_map={"average_exposure": PALETTE["teal"]}, height=300)
+
+    if not filtered_portfolio.empty and {"date", "portfolio_value", "experiment"}.issubset(filtered_portfolio.columns):
+        curve = filtered_portfolio.copy()
+        curve["date"] = pd.to_datetime(curve["date"], errors="coerce")
+        curve["portfolio_value"] = pd.to_numeric(curve["portfolio_value"], errors="coerce")
+        curve["series"] = curve["experiment"].astype(str).map(_display_experiment_name).fillna(curve["experiment"].astype(str))
+        if "seed" in curve.columns:
+            curve = curve.groupby(["date", "series"], as_index=False)["portfolio_value"].mean()
+        curve_frame = curve.pivot_table(index="date", columns="series", values="portfolio_value", aggfunc="mean")
+        render_multi_series(curve_frame, title="Portfolio curves by selected upgrade setting", kind="line", height=340)
+
+    if not filtered_env.empty and {"date", "current_exposure_after", "experiment"}.issubset(filtered_env.columns):
+        exposure_curve = filtered_env.copy()
+        exposure_curve["date"] = pd.to_datetime(exposure_curve["date"], errors="coerce")
+        exposure_curve["current_exposure_after"] = pd.to_numeric(exposure_curve["current_exposure_after"], errors="coerce")
+        exposure_curve["series"] = exposure_curve["experiment"].astype(str).map(_display_experiment_name).fillna(exposure_curve["experiment"].astype(str))
+        exposure_frame = exposure_curve.pivot_table(index="date", columns="series", values="current_exposure_after", aggfunc="mean")
+        render_multi_series(exposure_frame, title="Exposure curve", kind="line", height=300)
+
+    if not filtered_exploration.empty:
+        st.markdown("#### Exploration diagnostics")
+        if {"episode", "epsilon"}.issubset(filtered_exploration.columns):
+            exploration_plot = filtered_exploration.copy()
+            exploration_plot["episode"] = pd.to_numeric(exploration_plot["episode"], errors="coerce")
+            exploration_plot["epsilon"] = pd.to_numeric(exploration_plot["epsilon"], errors="coerce")
+            epsilon_frame = exploration_plot.pivot_table(index="episode", columns="experiment", values="epsilon", aggfunc="mean").rename(columns=_display_experiment_name)
+            render_multi_series(epsilon_frame, title="Epsilon schedule", kind="line", height=260)
+        st.dataframe(filtered_exploration.head(300), use_container_width=True, hide_index=True)
+
+    if not filtered_env.empty:
+        st.markdown("#### Environment dynamics")
+        st.dataframe(filtered_env.head(500), use_container_width=True, hide_index=True)
 
     st.markdown("#### model_upgrade_summary.csv")
     st.dataframe(filtered_summary, use_container_width=True, hide_index=True)

@@ -12,6 +12,8 @@ ACTION_BUY = 1
 ACTION_SELL = 2
 ACTION_NAMES = {ACTION_HOLD: "Hold", ACTION_BUY: "Buy", ACTION_SELL: "Sell"}
 REWARD_VARIANTS = {"one_day_return", "three_day_return", "five_day_return", "risk_adjusted_return"}
+ACTION_MODES = {"discrete_trade", "target_position"}
+TARGET_POSITION_ACTIONS = (0.0, 0.25, 0.50, 0.75, 1.00)
 
 
 class FinancialTradingEnv:
@@ -38,6 +40,17 @@ class FinancialTradingEnv:
         hold_penalty_enabled: bool = True,
         hold_penalty: float = 0.00005,
         hold_penalty_after_days: int = 10,
+        flat_penalty_enabled: bool = True,
+        flat_penalty: float = 0.00005,
+        flat_penalty_after_days: int = 10,
+        flat_exposure_threshold: float = 0.05,
+        trade_exploration_bonus_enabled: bool = True,
+        trade_exploration_bonus: float = 0.00002,
+        trade_exploration_bonus_episode_ratio: float = 0.30,
+        action_mode: str = "discrete_trade",
+        training_mode: bool = False,
+        current_episode: int = 0,
+        total_episodes: int = 0,
     ) -> None:
         self.data = data.sort_values("date").reset_index(drop=True).copy()
         self.state_columns = state_columns or STATE_COLUMNS
@@ -54,6 +67,19 @@ class FinancialTradingEnv:
         self.hold_penalty_enabled = bool(hold_penalty_enabled)
         self.hold_penalty = float(hold_penalty)
         self.hold_penalty_after_days = int(hold_penalty_after_days)
+        self.flat_penalty_enabled = bool(flat_penalty_enabled)
+        self.flat_penalty = float(flat_penalty)
+        self.flat_penalty_after_days = int(flat_penalty_after_days)
+        self.flat_exposure_threshold = float(flat_exposure_threshold)
+        self.trade_exploration_bonus_enabled = bool(trade_exploration_bonus_enabled)
+        self.trade_exploration_bonus = float(trade_exploration_bonus)
+        self.trade_exploration_bonus_episode_ratio = float(trade_exploration_bonus_episode_ratio)
+        if action_mode not in ACTION_MODES:
+            raise ValueError(f"action_mode must be one of {sorted(ACTION_MODES)}")
+        self.action_mode = action_mode
+        self.training_mode = bool(training_mode)
+        self.current_episode = int(current_episode)
+        self.total_episodes = int(total_episodes)
         self.reset()
 
     def reset(self) -> np.ndarray:
@@ -62,6 +88,7 @@ class FinancialTradingEnv:
         self.shares = 0.0
         self.peak_value = self.initial_cash
         self.consecutive_hold_days = 0
+        self.consecutive_flat_days = 0
         self.logs: list[dict[str, float | str | int]] = []
         return self._state()
 
@@ -71,50 +98,64 @@ class FinancialTradingEnv:
 
         row = self.data.loc[self.index]
         trade_price = self._execution_price(row)
+        cash_before = float(self.cash)
+        shares_before = float(self.shares)
+        portfolio_before = float(cash_before + shares_before * trade_price)
+        current_exposure_before = self._exposure_ratio(portfolio_before, shares_before, trade_price)
+        raw_action_id = int(action)
+        target_exposure = self._target_exposure(raw_action_id, current_exposure_before)
+        mapped_action_label = self._mapped_action_label(target_exposure, current_exposure_before)
+        transaction_cost_amount = self._execute_action(raw_action_id, trade_price, portfolio_before, current_exposure_before, target_exposure)
 
-        executed_action = ACTION_HOLD
-        transaction_cost_amount = 0.0
-
-        if action == ACTION_BUY and self.cash > trade_price:
-            shares_to_buy = np.floor(self.cash / (trade_price * (1 + self.transaction_cost)))
-            if shares_to_buy > 0:
-                gross_cost = shares_to_buy * trade_price
-                transaction_cost_amount = gross_cost * self.transaction_cost
-                self.cash -= gross_cost + transaction_cost_amount
-                self.shares += shares_to_buy
-                executed_action = ACTION_BUY
-        elif action == ACTION_SELL and self.shares > 0:
-            gross_proceeds = self.shares * trade_price
-            transaction_cost_amount = gross_proceeds * self.transaction_cost
-            self.cash += gross_proceeds - transaction_cost_amount
-            self.shares = 0.0
-            executed_action = ACTION_SELL
-
-        if executed_action == ACTION_HOLD:
+        if mapped_action_label == "Hold":
             self.consecutive_hold_days += 1
         else:
             self.consecutive_hold_days = 0
 
         portfolio_value_t = self.cash + self.shares * trade_price
         portfolio_value_t1 = self._future_portfolio_value(1)
+        current_exposure_after = self._exposure_ratio(portfolio_value_t, self.shares, trade_price)
+        if current_exposure_after < self.flat_exposure_threshold:
+            self.consecutive_flat_days += 1
+        else:
+            self.consecutive_flat_days = 0
         base_reward = self._base_reward(portfolio_value_t)
         turnover = 0.0 if portfolio_value_t == 0 else transaction_cost_amount / portfolio_value_t
         self.peak_value = max(self.peak_value, portfolio_value_t1)
         drawdown = 0.0 if self.peak_value == 0 else max(0.0, (self.peak_value - portfolio_value_t1) / self.peak_value)
         reward = self._reward(base_reward, turnover, drawdown)
-        hold_penalty_applied = 0.0
-        if self.hold_penalty_enabled and executed_action == ACTION_HOLD and self.consecutive_hold_days > self.hold_penalty_after_days:
-            hold_penalty_applied = self.hold_penalty
-            reward -= hold_penalty_applied
+        flat_penalty_applied = 0.0
+        if self.training_mode and self.flat_penalty_enabled and current_exposure_after < self.flat_exposure_threshold and self.consecutive_flat_days > self.flat_penalty_after_days:
+            flat_penalty_applied = self.flat_penalty
+            reward -= flat_penalty_applied
+        trade_exploration_bonus_applied = 0.0
+        if self._trade_bonus_active() and mapped_action_label in {"Buy", "Sell"}:
+            trade_exploration_bonus_applied = self.trade_exploration_bonus
+            reward += trade_exploration_bonus_applied
 
         self.logs.append(
             {
                 "date": row["date"],
-                "action": ACTION_NAMES[executed_action],
+                "step": int(self.index),
+                "raw_action_id": raw_action_id,
+                "action_mode": self.action_mode,
+                "target_exposure": float(target_exposure),
+                "current_exposure_before": float(current_exposure_before),
+                "current_exposure_after": float(current_exposure_after),
+                "mapped_action_label": mapped_action_label,
+                "action": mapped_action_label,
                 "cash": float(self.cash),
                 "shares": float(self.shares),
                 "position": float(self.shares),
                 "price": float(trade_price),
+                "cash_before": float(cash_before),
+                "shares_before": float(shares_before),
+                "portfolio_before": float(portfolio_before),
+                "cash_after": float(self.cash),
+                "shares_after": float(self.shares),
+                "portfolio_after": float(portfolio_value_t),
+                "position_ratio_after": float(current_exposure_after),
+                "cash_ratio_after": float(0.0 if portfolio_value_t == 0 else self.cash / portfolio_value_t),
                 "reward": float(reward),
                 "portfolio_value": float(portfolio_value_t1),
                 "portfolio_value_t": float(portfolio_value_t),
@@ -124,8 +165,13 @@ class FinancialTradingEnv:
                 "reward_mode": self.reward_mode,
                 "reward_variant": self.reward_variant,
                 "consecutive_hold_days": int(self.consecutive_hold_days),
-                "hold_penalty_applied": float(hold_penalty_applied),
-                "exposure_ratio_step": float(1.0 if self.shares > 0 else 0.0),
+                "consecutive_flat_days": int(self.consecutive_flat_days),
+                "hold_penalty_applied": 0.0,
+                "flat_penalty_applied": float(flat_penalty_applied),
+                "trade_exploration_bonus_applied": float(trade_exploration_bonus_applied),
+                "exposure_ratio_step": float(current_exposure_after),
+                "training_mode": bool(self.training_mode),
+                "episode": int(self.current_episode),
                 "seed": self.seed if self.seed is not None else np.nan,
             }
         )
@@ -136,11 +182,118 @@ class FinancialTradingEnv:
         info = {
             "portfolio_value_t": float(portfolio_value_t),
             "portfolio_value_t1": float(portfolio_value_t1),
-            "action": ACTION_NAMES[executed_action],
+            "action": mapped_action_label,
+            "raw_action_id": raw_action_id,
+            "action_mode": self.action_mode,
+            "target_exposure": float(target_exposure),
+            "current_exposure_before": float(current_exposure_before),
+            "current_exposure_after": float(current_exposure_after),
+            "mapped_action_label": mapped_action_label,
             "reward_variant": self.reward_variant,
-            "hold_penalty_applied": float(hold_penalty_applied),
+            "flat_penalty_applied": float(flat_penalty_applied),
+            "trade_exploration_bonus_applied": float(trade_exploration_bonus_applied),
         }
         return next_state, float(reward), bool(done), info
+
+    def _execute_action(
+        self,
+        action: int,
+        trade_price: float,
+        portfolio_before: float,
+        current_exposure_before: float,
+        target_exposure: float,
+    ) -> float:
+        if self.action_mode == "target_position":
+            return self._execute_target_position(trade_price, portfolio_before, current_exposure_before, target_exposure)
+        return self._execute_discrete_trade(action, trade_price)
+
+    def _execute_discrete_trade(self, action: int, trade_price: float) -> float:
+        transaction_cost_amount = 0.0
+        if action == ACTION_BUY and self.cash > trade_price:
+            shares_to_buy = np.floor(self.cash / (trade_price * (1 + self.transaction_cost)))
+            if shares_to_buy > 0:
+                gross_cost = shares_to_buy * trade_price
+                transaction_cost_amount = gross_cost * self.transaction_cost
+                self.cash -= gross_cost + transaction_cost_amount
+                self.shares += shares_to_buy
+        elif action == ACTION_SELL and self.shares > 0:
+            gross_proceeds = self.shares * trade_price
+            transaction_cost_amount = gross_proceeds * self.transaction_cost
+            self.cash += gross_proceeds - transaction_cost_amount
+            self.shares = 0.0
+        self.cash = max(float(self.cash), 0.0)
+        self.shares = max(float(self.shares), 0.0)
+        return float(transaction_cost_amount)
+
+    def _execute_target_position(
+        self,
+        trade_price: float,
+        portfolio_before: float,
+        current_exposure_before: float,
+        target_exposure: float,
+    ) -> float:
+        if portfolio_before <= 0 or trade_price <= 0:
+            return 0.0
+        transaction_cost_amount = 0.0
+        target_position_value = max(0.0, min(1.0, target_exposure)) * portfolio_before
+        current_position_value = current_exposure_before * portfolio_before
+        delta_value = target_position_value - current_position_value
+        if delta_value > 0 and self.cash > 0:
+            max_gross_cost = self.cash / (1 + self.transaction_cost)
+            gross_cost = min(delta_value, max_gross_cost)
+            shares_to_buy = np.floor(gross_cost / trade_price)
+            if shares_to_buy > 0:
+                gross_cost = shares_to_buy * trade_price
+                transaction_cost_amount = gross_cost * self.transaction_cost
+                self.cash -= gross_cost + transaction_cost_amount
+                self.shares += shares_to_buy
+        elif delta_value < 0 and self.shares > 0:
+            gross_proceeds_target = min(abs(delta_value), self.shares * trade_price)
+            shares_to_sell = min(self.shares, np.ceil(gross_proceeds_target / trade_price))
+            if shares_to_sell > 0:
+                gross_proceeds = shares_to_sell * trade_price
+                transaction_cost_amount = gross_proceeds * self.transaction_cost
+                self.cash += gross_proceeds - transaction_cost_amount
+                self.shares -= shares_to_sell
+        self.cash = max(float(self.cash), 0.0)
+        self.shares = max(float(self.shares), 0.0)
+        return float(transaction_cost_amount)
+
+    def _target_exposure(self, action: int, current_exposure: float) -> float:
+        if self.action_mode == "target_position":
+            if action < 0 or action >= len(TARGET_POSITION_ACTIONS):
+                return float(current_exposure)
+            return float(TARGET_POSITION_ACTIONS[action])
+        if action == ACTION_BUY:
+            return 1.0
+        if action == ACTION_SELL:
+            return 0.0
+        return float(current_exposure)
+
+    def _mapped_action_label(self, target_exposure: float, current_exposure_before: float) -> str:
+        if self.action_mode == "target_position":
+            if target_exposure > current_exposure_before + 0.01:
+                return "Buy"
+            if target_exposure < current_exposure_before - 0.01:
+                return "Sell"
+            return "Hold"
+        if target_exposure > current_exposure_before + 0.01:
+            return "Buy"
+        if target_exposure < current_exposure_before - 0.01:
+            return "Sell"
+        return "Hold"
+
+    def _exposure_ratio(self, portfolio_value: float, shares: float, price: float) -> float:
+        if portfolio_value <= 0:
+            return 0.0
+        return float(max(0.0, min(1.0, shares * price / portfolio_value)))
+
+    def _trade_bonus_active(self) -> bool:
+        if not (self.training_mode and self.trade_exploration_bonus_enabled):
+            return False
+        if self.total_episodes <= 0:
+            return False
+        return (self.current_episode / self.total_episodes) <= self.trade_exploration_bonus_episode_ratio
 
     def _base_reward(self, portfolio_value_t: float) -> float:
         if portfolio_value_t == 0:
@@ -200,7 +353,10 @@ class FinancialTradingEnv:
         log = pd.DataFrame(self.logs)
         if log.empty:
             return log
-        log.insert(0, "episode", episode)
+        if "episode" in log.columns:
+            log["episode"] = episode
+        else:
+            log.insert(0, "episode", episode)
         log["experiment"] = experiment
         log["experiment_name"] = experiment
         log["seed"] = seed if seed is not None else log["seed"]

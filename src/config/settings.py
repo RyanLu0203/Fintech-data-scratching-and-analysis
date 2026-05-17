@@ -25,13 +25,21 @@ class Settings:
     model_variant: str = os.getenv("MODEL_VARIANT", "vanilla_dqn")
     loss_type: str = os.getenv("LOSS_TYPE", "huber")
     grad_clip_norm: float = float(os.getenv("GRAD_CLIP_NORM", "1.0"))
-    epsilon_decay_ratio: float = float(os.getenv("EPSILON_DECAY_RATIO", "0.70"))
+    epsilon_decay_ratio: float = float(os.getenv("EPSILON_DECAY_RATIO", "0.85"))
     reward_variant: str = os.getenv("REWARD_VARIANT", "one_day_return")
     risk_lambda: float = float(os.getenv("RISK_LAMBDA", "0.1"))
     state_feature_mode: str = os.getenv("STATE_FEATURE_MODE", "official_8d")
+    action_mode: str = os.getenv("ACTION_MODE", "discrete_trade")
     hold_penalty_enabled: bool = os.getenv("HOLD_PENALTY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
     hold_penalty: float = float(os.getenv("HOLD_PENALTY", "0.00005"))
     hold_penalty_after_days: int = int(os.getenv("HOLD_PENALTY_AFTER_DAYS", "10"))
+    flat_penalty_enabled: bool = os.getenv("FLAT_PENALTY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    flat_penalty: float = float(os.getenv("FLAT_PENALTY", "0.00005"))
+    flat_penalty_after_days: int = int(os.getenv("FLAT_PENALTY_AFTER_DAYS", "10"))
+    flat_exposure_threshold: float = float(os.getenv("FLAT_EXPOSURE_THRESHOLD", "0.05"))
+    trade_exploration_bonus_enabled: bool = os.getenv("TRADE_EXPLORATION_BONUS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    trade_exploration_bonus: float = float(os.getenv("TRADE_EXPLORATION_BONUS", "0.00002"))
+    trade_exploration_bonus_episode_ratio: float = float(os.getenv("TRADE_EXPLORATION_BONUS_EPISODE_RATIO", "0.30"))
     model_dir: Path = OUTPUTS_ROOT / "models"
     report_dir: Path = OUTPUTS_ROOT / "reports"
 

@@ -76,6 +76,14 @@ def train_dqn(
     hold_penalty_enabled: bool | None = None,
     hold_penalty: float | None = None,
     hold_penalty_after_days: int | None = None,
+    flat_penalty_enabled: bool | None = None,
+    flat_penalty: float | None = None,
+    flat_penalty_after_days: int | None = None,
+    flat_exposure_threshold: float | None = None,
+    trade_exploration_bonus_enabled: bool | None = None,
+    trade_exploration_bonus: float | None = None,
+    trade_exploration_bonus_episode_ratio: float | None = None,
+    action_mode: str | None = None,
     initial_state_dict: dict[str, torch.Tensor] | None = None,
     initial_epsilon: float | None = None,
     state_scaler: dict[str, dict[str, float]] | None = None,
@@ -99,6 +107,14 @@ def train_dqn(
     active_hold_penalty_enabled = config.hold_penalty_enabled if hold_penalty_enabled is None else bool(hold_penalty_enabled)
     active_hold_penalty = config.hold_penalty if hold_penalty is None else float(hold_penalty)
     active_hold_penalty_after_days = config.hold_penalty_after_days if hold_penalty_after_days is None else int(hold_penalty_after_days)
+    active_flat_penalty_enabled = config.flat_penalty_enabled if flat_penalty_enabled is None else bool(flat_penalty_enabled)
+    active_flat_penalty = config.flat_penalty if flat_penalty is None else float(flat_penalty)
+    active_flat_penalty_after_days = config.flat_penalty_after_days if flat_penalty_after_days is None else int(flat_penalty_after_days)
+    active_flat_exposure_threshold = config.flat_exposure_threshold if flat_exposure_threshold is None else float(flat_exposure_threshold)
+    active_trade_bonus_enabled = config.trade_exploration_bonus_enabled if trade_exploration_bonus_enabled is None else bool(trade_exploration_bonus_enabled)
+    active_trade_bonus = config.trade_exploration_bonus if trade_exploration_bonus is None else float(trade_exploration_bonus)
+    active_trade_bonus_ratio = config.trade_exploration_bonus_episode_ratio if trade_exploration_bonus_episode_ratio is None else float(trade_exploration_bonus_episode_ratio)
+    active_action_mode = action_mode or config.action_mode
     agent = DQNAgent(config)
     if initial_state_dict is not None:
         agent.online.load_state_dict(initial_state_dict)
@@ -107,6 +123,7 @@ def train_dqn(
         agent.config.epsilon = float(initial_epsilon)
     scaler = state_scaler or build_state_scaler(data, state_columns, initial_cash)
     reward_rows = []
+    exploration_rows = []
     final_log = pd.DataFrame()
 
     for episode in range(1, episodes + 1):
@@ -122,19 +139,42 @@ def train_dqn(
             hold_penalty_enabled=active_hold_penalty_enabled,
             hold_penalty=active_hold_penalty,
             hold_penalty_after_days=active_hold_penalty_after_days,
+            flat_penalty_enabled=active_flat_penalty_enabled,
+            flat_penalty=active_flat_penalty,
+            flat_penalty_after_days=active_flat_penalty_after_days,
+            flat_exposure_threshold=active_flat_exposure_threshold,
+            trade_exploration_bonus_enabled=active_trade_bonus_enabled,
+            trade_exploration_bonus=active_trade_bonus,
+            trade_exploration_bonus_episode_ratio=active_trade_bonus_ratio,
+            action_mode=active_action_mode,
+            training_mode=True,
+            current_episode=episode,
+            total_episodes=episodes,
         )
         state = normalize_state(env.reset(), state_columns, scaler)
         done = False
         total_reward = 0.0
         last_loss = 0.0
+        random_action_count = 0
+        greedy_action_count = 0
+        action_counts = {"Buy": 0, "Sell": 0, "Hold": 0}
+        exposure_values: list[float] = []
         while not done:
             action = agent.act(state, explore=True)
+            if agent.last_action_was_random:
+                random_action_count += 1
+            else:
+                greedy_action_count += 1
             next_state_raw, reward, done, _info = env.step(action)
+            action_label = str(_info.get("mapped_action_label", _info.get("action", "Hold")))
+            action_counts[action_label] = action_counts.get(action_label, 0) + 1
+            exposure_values.append(float(_info.get("current_exposure_after", 0.0) or 0.0))
             next_state = normalize_state(next_state_raw, state_columns, scaler)
             agent.remember(Experience(state, action, reward, next_state, done))
             last_loss = agent.train_step()
             state = next_state
             total_reward += reward
+        average_exposure = float(np.mean(exposure_values)) if exposure_values else 0.0
         reward_rows.append(
             {
                 "episode": episode,
@@ -149,7 +189,32 @@ def train_dqn(
                 "loss_type": agent.config.loss_type,
                 "grad_clip_norm": agent.config.grad_clip_norm,
                 "state_feature_mode": agent.config.state_feature_mode,
+                "action_mode": active_action_mode,
+                "random_action_count": random_action_count,
+                "greedy_action_count": greedy_action_count,
+                "buy_count": action_counts.get("Buy", 0),
+                "sell_count": action_counts.get("Sell", 0),
+                "hold_count": action_counts.get("Hold", 0),
+                "average_exposure": average_exposure,
                 "state_normalized": True,
+            }
+        )
+        exploration_rows.append(
+            {
+                "episode": episode,
+                "epsilon": agent.config.epsilon,
+                "random_action_count": random_action_count,
+                "greedy_action_count": greedy_action_count,
+                "buy_count": action_counts.get("Buy", 0),
+                "sell_count": action_counts.get("Sell", 0),
+                "hold_count": action_counts.get("Hold", 0),
+                "average_exposure": average_exposure,
+                "experiment": experiment,
+                "seed": seed,
+                "model_variant": agent.config.model_variant,
+                "reward_variant": active_reward_variant,
+                "state_feature_mode": agent.config.state_feature_mode,
+                "action_mode": active_action_mode,
             }
         )
         if episode == episodes:
@@ -173,14 +238,16 @@ def train_dqn(
                 )
 
     rewards = pd.DataFrame(reward_rows)
+    exploration = pd.DataFrame(exploration_rows)
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
         rewards.to_csv(output_dir / f"{experiment}_training_rewards.csv", index=False)
+        exploration.to_csv(output_dir / f"{experiment}_exploration_diagnostics.csv", index=False)
         final_log.to_csv(output_dir / f"{experiment}_trading_log.csv", index=False)
         model_output_dir = model_dir or output_dir
         model_output_dir.mkdir(parents=True, exist_ok=True)
         torch.save(agent.online.state_dict(), model_output_dir / f"{experiment}_dqn_model.pt")
-    return {"agent": agent, "training_rewards": rewards, "trading_log": final_log, "state_scaler": scaler}
+    return {"agent": agent, "training_rewards": rewards, "exploration_diagnostics": exploration, "trading_log": final_log, "state_scaler": scaler}
 
 
 def evaluate_agent(
@@ -198,6 +265,14 @@ def evaluate_agent(
     hold_penalty_enabled: bool | None = None,
     hold_penalty: float | None = None,
     hold_penalty_after_days: int | None = None,
+    flat_penalty_enabled: bool | None = None,
+    flat_penalty: float | None = None,
+    flat_penalty_after_days: int | None = None,
+    flat_exposure_threshold: float | None = None,
+    trade_exploration_bonus_enabled: bool | None = None,
+    trade_exploration_bonus: float | None = None,
+    trade_exploration_bonus_episode_ratio: float | None = None,
+    action_mode: str | None = None,
 ) -> pd.DataFrame:
     seed_everything(seed)
     active_reward_variant = reward_variant or agent.config.reward_variant
@@ -213,6 +288,15 @@ def evaluate_agent(
         hold_penalty_enabled=agent.config.hold_penalty_enabled if hold_penalty_enabled is None else bool(hold_penalty_enabled),
         hold_penalty=agent.config.hold_penalty if hold_penalty is None else float(hold_penalty),
         hold_penalty_after_days=agent.config.hold_penalty_after_days if hold_penalty_after_days is None else int(hold_penalty_after_days),
+        flat_penalty_enabled=agent.config.flat_penalty_enabled if flat_penalty_enabled is None else bool(flat_penalty_enabled),
+        flat_penalty=agent.config.flat_penalty if flat_penalty is None else float(flat_penalty),
+        flat_penalty_after_days=agent.config.flat_penalty_after_days if flat_penalty_after_days is None else int(flat_penalty_after_days),
+        flat_exposure_threshold=agent.config.flat_exposure_threshold if flat_exposure_threshold is None else float(flat_exposure_threshold),
+        trade_exploration_bonus_enabled=agent.config.trade_exploration_bonus_enabled if trade_exploration_bonus_enabled is None else bool(trade_exploration_bonus_enabled),
+        trade_exploration_bonus=agent.config.trade_exploration_bonus if trade_exploration_bonus is None else float(trade_exploration_bonus),
+        trade_exploration_bonus_episode_ratio=agent.config.trade_exploration_bonus_episode_ratio if trade_exploration_bonus_episode_ratio is None else float(trade_exploration_bonus_episode_ratio),
+        action_mode=action_mode or agent.config.action_mode,
+        training_mode=False,
     )
     scaler = state_scaler or build_state_scaler(data, state_columns, initial_cash)
     state = normalize_state(env.reset(), state_columns, scaler)

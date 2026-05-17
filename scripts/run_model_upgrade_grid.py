@@ -21,7 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end-date", default="2026-04-30")
     parser.add_argument("--max-seeds", type=int, default=20)
     parser.add_argument("--quick-test", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--medium-test", action="store_true")
+    args = parser.parse_args()
+    if args.quick_test and args.medium_test:
+        parser.error("--quick-test and --medium-test cannot be used together.")
+    return args
 
 
 def main() -> None:
@@ -33,6 +37,7 @@ def main() -> None:
         end_date=args.end_date,
         max_seeds=args.max_seeds,
         quick_test=bool(args.quick_test),
+        medium_test=bool(args.medium_test),
     )
     paths = run_model_upgrade_grid(config)
     print("Model upgrade grid finished.")

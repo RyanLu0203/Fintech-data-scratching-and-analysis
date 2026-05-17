@@ -13,6 +13,8 @@ from src.rl.replay_buffer import Experience, ReplayBuffer
 
 MODEL_VARIANTS = {"vanilla_dqn", "double_dqn", "dueling_dqn", "double_dueling_dqn"}
 LOSS_TYPES = {"mse", "huber"}
+ACTION_MODES = {"discrete_trade", "target_position"}
+TARGET_POSITION_ACTIONS = (0.0, 0.25, 0.50, 0.75, 1.00)
 
 
 def seed_everything(seed: int) -> None:
@@ -73,20 +75,32 @@ class DQNConfig:
     loss_type: str = "huber"
     grad_clip_norm: float | None = 1.0
     epsilon_start: float = 1.0
-    epsilon_end: float = 0.05
-    epsilon_decay_ratio: float = 0.70
+    epsilon_end: float = 0.10
+    epsilon_decay_ratio: float = 0.85
     reward_variant: str = "one_day_return"
     risk_lambda: float = 0.1
     state_feature_mode: str = "official_8d"
+    action_mode: str = "discrete_trade"
     hold_penalty_enabled: bool = True
     hold_penalty: float = 0.00005
     hold_penalty_after_days: int = 10
+    flat_penalty_enabled: bool = True
+    flat_penalty: float = 0.00005
+    flat_penalty_after_days: int = 10
+    flat_exposure_threshold: float = 0.05
+    trade_exploration_bonus_enabled: bool = True
+    trade_exploration_bonus: float = 0.00002
+    trade_exploration_bonus_episode_ratio: float = 0.30
 
     def __post_init__(self) -> None:
         if self.model_variant not in MODEL_VARIANTS:
             raise ValueError(f"model_variant must be one of {sorted(MODEL_VARIANTS)}")
         if self.loss_type not in LOSS_TYPES:
             raise ValueError(f"loss_type must be one of {sorted(LOSS_TYPES)}")
+        if self.action_mode not in ACTION_MODES:
+            raise ValueError(f"action_mode must be one of {sorted(ACTION_MODES)}")
+        if self.action_mode == "target_position":
+            self.action_dim = len(TARGET_POSITION_ACTIONS)
         self.epsilon = float(self.epsilon)
         self.epsilon_min = float(self.epsilon_min)
         self.epsilon_start = float(self.epsilon_start)
@@ -104,6 +118,7 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.online.parameters(), lr=config.lr)
         self.replay = ReplayBuffer(config.replay_capacity)
         self.steps = 0
+        self.last_action_was_random = False
 
     def _build_network(self) -> nn.Module:
         if "dueling" in self.config.model_variant:
@@ -112,9 +127,11 @@ class DQNAgent:
 
     def act(self, state: np.ndarray, explore: bool = True) -> int:
         if explore and random.random() < self.config.epsilon:
+            self.last_action_was_random = True
             return random.randrange(self.config.action_dim)
         with torch.no_grad():
             q_values = self.online(torch.tensor(state, dtype=torch.float32).unsqueeze(0))
+        self.last_action_was_random = False
         return int(torch.argmax(q_values, dim=1).item())
 
     def remember(self, experience: Experience) -> None:

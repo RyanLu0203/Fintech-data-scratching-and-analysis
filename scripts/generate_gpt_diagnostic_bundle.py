@@ -9,6 +9,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 PROJECT_ROOT_FOR_IMPORTS = Path(__file__).resolve().parents[1]
@@ -180,7 +181,14 @@ def _derived_diagnostics(symbol: str) -> list[str]:
         lines.extend(["### Official Action Distribution", "", action_counts.to_markdown(), ""])
     upgrade_actions = _read_csv(OUTPUTS_ROOT / "model_upgrade" / "action_distribution_diagnostics.csv")
     if not upgrade_actions.empty:
-        grouped = upgrade_actions.groupby(["model_variant", "experiment"])[["hold_ratio", "buy_ratio", "sell_ratio"]].mean().reset_index()
+        for column in ["hold_count", "buy_count", "sell_count", "total_actions"]:
+            upgrade_actions[column] = pd.to_numeric(upgrade_actions.get(column, 0), errors="coerce").fillna(0)
+        counts = upgrade_actions.groupby(["run_mode", "model_variant", "experiment"], dropna=False)[["hold_count", "buy_count", "sell_count", "total_actions"]].sum().reset_index()
+        denominator = counts["total_actions"].replace(0, np.nan)
+        counts["hold_ratio"] = counts["hold_count"] / denominator
+        counts["buy_ratio"] = counts["buy_count"] / denominator
+        counts["sell_ratio"] = counts["sell_count"] / denominator
+        grouped = counts[["run_mode", "model_variant", "experiment", "hold_ratio", "buy_ratio", "sell_ratio"]]
         lines.extend(["### Model Upgrade Mean Action Ratios", "", grouped.to_markdown(index=False), ""])
     daily = _read_csv(stock_results_dir(symbol) / "peer_market_impact_daily_signal.csv")
     comparisons = []

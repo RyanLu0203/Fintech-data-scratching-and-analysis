@@ -3,38 +3,135 @@
 - target_symbol: 002475
 - target_company: 立讯精密
 - window: 2024-01-01 -> 2026-04-30
-- quick_test: True
+- run_mode: medium_test
+- timestamp: 2026-05-18T01:48:16
+- official_baseline_action_mode: discrete_trade
+- model_upgrade_default_action_mode: target_position
 
 - model_variants: ['vanilla_dqn', 'double_dueling_dqn']
-- reward_variants: ['one_day_return']
-- state_feature_modes: ['official_8d']
-- seeds: [1, 2]
-- episodes: 5
+- reward_variants: ['one_day_return', 'three_day_return']
+- state_feature_modes: ['normalized_plus']
+- action_modes: ['target_position']
+- seeds: [1, 2, 3, 4, 5]
+- episodes: 50
 
-- 002475_vanilla_dqn_one_day_return_official_8d_seed1: final_equity=842361.7848799999, trades=2, exposure=0.09090909090909091
-- 002475_vanilla_dqn_one_day_return_official_8d_seed1: final_equity=842361.7848799999, trades=2, exposure=0.09090909090909091
-- 002475_vanilla_dqn_one_day_return_official_8d_seed1: final_equity=1342369.00564, trades=3, exposure=0.30578512396694213
-- 002475_vanilla_dqn_one_day_return_official_8d_seed1: final_equity=880157.7389400001, trades=3, exposure=0.03305785123966942
-- 002475_vanilla_dqn_one_day_return_official_8d_seed1: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_vanilla_dqn_one_day_return_official_8d_seed2: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_vanilla_dqn_one_day_return_official_8d_seed2: final_equity=1105608.2580199998, trades=11, exposure=0.39669421487603307
-- 002475_vanilla_dqn_one_day_return_official_8d_seed2: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_vanilla_dqn_one_day_return_official_8d_seed2: final_equity=1102335.26248, trades=10, exposure=0.18181818181818182
-- 002475_vanilla_dqn_one_day_return_official_8d_seed2: final_equity=1024532.37893, trades=14, exposure=0.8925619834710744
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed1: final_equity=993641.8525800002, trades=4, exposure=0.04132231404958678
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed1: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed1: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed1: final_equity=1000000.0, trades=0, exposure=0.0
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed1: final_equity=1127598.6780700004, trades=3, exposure=0.0743801652892562
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed2: final_equity=1014995.8652, trades=8, exposure=0.049586776859504134
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed2: final_equity=911647.75175, trades=14, exposure=0.06611570247933884
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed2: final_equity=935383.4349700002, trades=6, exposure=0.024793388429752067
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed2: final_equity=1038645.08956, trades=2, exposure=0.008264462809917356
-- 002475_double_dueling_dqn_one_day_return_official_8d_seed2: final_equity=1203982.2088399995, trades=13, exposure=0.1652892561983471
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed1: final_equity=1179395.6253399998, trades=25, avg_exposure=0.8615405970847624, actions={'hold_count': 96, 'buy_count': 13, 'sell_count': 12, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed1: final_equity=1244890.2672500005, trades=37, avg_exposure=0.7789260485589593, actions={'hold_count': 84, 'buy_count': 20, 'sell_count': 17, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed1: final_equity=1233284.3438, trades=27, avg_exposure=0.6280921553849994, actions={'hold_count': 94, 'buy_count': 16, 'sell_count': 11, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed1: final_equity=1214272.7814900002, trades=64, avg_exposure=0.6384407625066693, actions={'hold_count': 57, 'buy_count': 33, 'sell_count': 31, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed1: final_equity=849652.0892999999, trades=49, avg_exposure=0.5309923697416192, actions={'hold_count': 72, 'buy_count': 25, 'sell_count': 24, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed2: final_equity=1499048.35391, trades=60, avg_exposure=0.5454879236258616, actions={'hold_count': 61, 'buy_count': 32, 'sell_count': 28, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed2: final_equity=1344645.84485, trades=24, avg_exposure=0.19422421268525983, actions={'hold_count': 97, 'buy_count': 12, 'sell_count': 12, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed2: final_equity=1447848.7126700003, trades=47, avg_exposure=0.4194542928528472, actions={'hold_count': 74, 'buy_count': 22, 'sell_count': 25, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed2: final_equity=1513236.55174, trades=57, avg_exposure=0.4690627948290267, actions={'hold_count': 64, 'buy_count': 29, 'sell_count': 28, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed2: final_equity=1112365.61718, trades=26, avg_exposure=0.8037053162432868, actions={'hold_count': 95, 'buy_count': 16, 'sell_count': 10, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed3: final_equity=1071431.35153, trades=26, avg_exposure=0.811979874513701, actions={'hold_count': 95, 'buy_count': 12, 'sell_count': 14, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed3: final_equity=1426594.0054800003, trades=42, avg_exposure=0.6756363074978666, actions={'hold_count': 79, 'buy_count': 23, 'sell_count': 19, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed3: final_equity=1419499.0578100008, trades=22, avg_exposure=0.202486376534429, actions={'hold_count': 99, 'buy_count': 11, 'sell_count': 11, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed3: final_equity=1234767.2393, trades=42, avg_exposure=0.5681866178930607, actions={'hold_count': 79, 'buy_count': 23, 'sell_count': 19, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed3: final_equity=1575075.7165, trades=49, avg_exposure=0.5599268871942743, actions={'hold_count': 72, 'buy_count': 23, 'sell_count': 26, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed4: final_equity=1275031.62696, trades=30, avg_exposure=0.6115625152522393, actions={'hold_count': 91, 'buy_count': 15, 'sell_count': 15, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed4: final_equity=1531146.5947099992, trades=33, avg_exposure=0.183918506169919, actions={'hold_count': 88, 'buy_count': 18, 'sell_count': 15, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed4: final_equity=1130298.8409599997, trades=37, avg_exposure=0.6528873161180776, actions={'hold_count': 84, 'buy_count': 18, 'sell_count': 19, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed4: final_equity=1095605.07452, trades=36, avg_exposure=0.590909018769548, actions={'hold_count': 85, 'buy_count': 18, 'sell_count': 18, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed4: final_equity=1278025.7918600005, trades=55, avg_exposure=0.5041425155150876, actions={'hold_count': 66, 'buy_count': 29, 'sell_count': 26, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed5: final_equity=1310547.9134900002, trades=32, avg_exposure=0.5909026445066718, actions={'hold_count': 89, 'buy_count': 16, 'sell_count': 16, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed5: final_equity=1314167.8925700001, trades=25, avg_exposure=0.7809803789598384, actions={'hold_count': 96, 'buy_count': 13, 'sell_count': 12, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed5: final_equity=1180687.7824199996, trades=26, avg_exposure=0.816090865090242, actions={'hold_count': 95, 'buy_count': 15, 'sell_count': 11, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed5: final_equity=1292126.4308299995, trades=31, avg_exposure=0.6694144896378997, actions={'hold_count': 90, 'buy_count': 15, 'sell_count': 16, 'total_actions': 121}
+- 002475_vanilla_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed5: final_equity=1411680.33834, trades=50, avg_exposure=0.6343140527391151, actions={'hold_count': 71, 'buy_count': 24, 'sell_count': 26, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed1: final_equity=1275264.3810700006, trades=39, avg_exposure=0.36158891764356743, actions={'hold_count': 82, 'buy_count': 21, 'sell_count': 18, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed1: final_equity=952781.7652899998, trades=59, avg_exposure=0.6632399150877567, actions={'hold_count': 62, 'buy_count': 30, 'sell_count': 29, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed1: final_equity=1270464.0382500002, trades=44, avg_exposure=0.3491971700596237, actions={'hold_count': 77, 'buy_count': 22, 'sell_count': 22, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed1: final_equity=947024.3275799998, trades=19, avg_exposure=0.7871753457059406, actions={'hold_count': 102, 'buy_count': 10, 'sell_count': 9, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed1: final_equity=1103726.7210599997, trades=31, avg_exposure=0.26447602637982304, actions={'hold_count': 90, 'buy_count': 16, 'sell_count': 15, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed2: final_equity=1349056.47388, trades=24, avg_exposure=0.1776968267432072, actions={'hold_count': 97, 'buy_count': 13, 'sell_count': 11, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed2: final_equity=1213542.0213300001, trades=8, avg_exposure=0.09917537518719098, actions={'hold_count': 113, 'buy_count': 5, 'sell_count': 3, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed2: final_equity=1374061.85963, trades=19, avg_exposure=0.17768900545084315, actions={'hold_count': 102, 'buy_count': 10, 'sell_count': 9, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed2: final_equity=1257077.80066, trades=17, avg_exposure=0.14463919201149006, actions={'hold_count': 104, 'buy_count': 9, 'sell_count': 8, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed2: final_equity=1314976.8095800006, trades=32, avg_exposure=0.2562050648024611, actions={'hold_count': 89, 'buy_count': 17, 'sell_count': 15, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed3: final_equity=1175328.6648900001, trades=16, avg_exposure=0.10951047188656511, actions={'hold_count': 105, 'buy_count': 9, 'sell_count': 7, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed3: final_equity=1403427.5863300003, trades=28, avg_exposure=0.24380113628600594, actions={'hold_count': 93, 'buy_count': 14, 'sell_count': 14, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed3: final_equity=1385589.3452299996, trades=41, avg_exposure=0.2954574505870151, actions={'hold_count': 80, 'buy_count': 20, 'sell_count': 21, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed3: final_equity=1454758.8953900004, trades=44, avg_exposure=0.22937484489277443, actions={'hold_count': 77, 'buy_count': 23, 'sell_count': 21, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed3: final_equity=1106147.7014799998, trades=24, avg_exposure=0.671491786359986, actions={'hold_count': 97, 'buy_count': 12, 'sell_count': 12, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed4: final_equity=1185926.9890500002, trades=28, avg_exposure=0.4772888750228125, actions={'hold_count': 93, 'buy_count': 16, 'sell_count': 12, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed4: final_equity=1828337.1298399991, trades=47, avg_exposure=0.3326713602191987, actions={'hold_count': 74, 'buy_count': 24, 'sell_count': 23, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed4: final_equity=874621.9838699994, trades=63, avg_exposure=0.43807752387354054, actions={'hold_count': 58, 'buy_count': 31, 'sell_count': 32, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed4: final_equity=1138225.8175300001, trades=22, avg_exposure=0.7871998281996128, actions={'hold_count': 99, 'buy_count': 12, 'sell_count': 10, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed4: final_equity=995668.47695, trades=48, avg_exposure=0.2934350130479946, actions={'hold_count': 73, 'buy_count': 23, 'sell_count': 25, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed5: final_equity=1088494.8293400002, trades=24, avg_exposure=0.2128371288644866, actions={'hold_count': 97, 'buy_count': 13, 'sell_count': 11, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed5: final_equity=1682854.4586, trades=54, avg_exposure=0.4669969787381161, actions={'hold_count': 67, 'buy_count': 28, 'sell_count': 26, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed5: final_equity=1386320.33864, trades=11, avg_exposure=0.1652888045859108, actions={'hold_count': 110, 'buy_count': 6, 'sell_count': 5, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed5: final_equity=1492459.7328199998, trades=42, avg_exposure=0.37607324352420346, actions={'hold_count': 79, 'buy_count': 22, 'sell_count': 20, 'total_actions': 121}
+- 002475_vanilla_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed5: final_equity=1279142.4280200002, trades=7, avg_exposure=0.13016882082642642, actions={'hold_count': 114, 'buy_count': 4, 'sell_count': 3, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed1: final_equity=1078621.6916399999, trades=19, avg_exposure=0.7272529834409045, actions={'hold_count': 102, 'buy_count': 10, 'sell_count': 9, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed1: final_equity=910349.2219000001, trades=59, avg_exposure=0.5867690601069536, actions={'hold_count': 62, 'buy_count': 30, 'sell_count': 29, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed1: final_equity=1265552.452140001, trades=51, avg_exposure=0.6900835007510092, actions={'hold_count': 70, 'buy_count': 24, 'sell_count': 27, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed1: final_equity=1503423.5601000004, trades=47, avg_exposure=0.4793519554540751, actions={'hold_count': 74, 'buy_count': 24, 'sell_count': 23, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed1: final_equity=1346349.06495, trades=43, avg_exposure=0.7417341332812454, actions={'hold_count': 78, 'buy_count': 23, 'sell_count': 20, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed2: final_equity=1169254.6357799997, trades=25, avg_exposure=0.7623803429085914, actions={'hold_count': 96, 'buy_count': 13, 'sell_count': 12, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed2: final_equity=1002985.1113400001, trades=36, avg_exposure=0.6880102953905344, actions={'hold_count': 85, 'buy_count': 18, 'sell_count': 18, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed2: final_equity=1165229.2217400004, trades=25, avg_exposure=0.7396581000513485, actions={'hold_count': 96, 'buy_count': 13, 'sell_count': 12, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed2: final_equity=1527666.4701000003, trades=57, avg_exposure=0.37809687077666004, actions={'hold_count': 64, 'buy_count': 28, 'sell_count': 29, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed2: final_equity=1409311.1786700003, trades=21, avg_exposure=0.7375872987293008, actions={'hold_count': 100, 'buy_count': 11, 'sell_count': 10, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed3: final_equity=1379996.7656800002, trades=32, avg_exposure=0.7479212077511479, actions={'hold_count': 89, 'buy_count': 16, 'sell_count': 16, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed3: final_equity=1669643.6185100004, trades=49, avg_exposure=0.34918723300657434, actions={'hold_count': 72, 'buy_count': 23, 'sell_count': 26, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed3: final_equity=938275.5532000002, trades=25, avg_exposure=0.7644436807478863, actions={'hold_count': 96, 'buy_count': 13, 'sell_count': 12, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed3: final_equity=1696821.8617500002, trades=35, avg_exposure=0.2541340781076718, actions={'hold_count': 86, 'buy_count': 17, 'sell_count': 18, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed3: final_equity=1093868.6962899999, trades=20, avg_exposure=0.7107367886316166, actions={'hold_count': 101, 'buy_count': 9, 'sell_count': 11, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed4: final_equity=1336142.8965099994, trades=42, avg_exposure=0.5123873355186274, actions={'hold_count': 79, 'buy_count': 21, 'sell_count': 21, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed4: final_equity=1148984.7353899998, trades=51, avg_exposure=0.6838821169666911, actions={'hold_count': 70, 'buy_count': 25, 'sell_count': 26, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed4: final_equity=1598666.2488500024, trades=58, avg_exposure=0.5702442331692344, actions={'hold_count': 63, 'buy_count': 31, 'sell_count': 27, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed4: final_equity=1193618.9631499995, trades=26, avg_exposure=0.6198258919637377, actions={'hold_count': 95, 'buy_count': 13, 'sell_count': 13, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed4: final_equity=1413092.04494, trades=34, avg_exposure=0.6280866727147895, actions={'hold_count': 87, 'buy_count': 17, 'sell_count': 17, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_without_nlp_seed5: final_equity=1352641.5023700004, trades=35, avg_exposure=0.7231355814272705, actions={'hold_count': 86, 'buy_count': 17, 'sell_count': 18, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed5: final_equity=1139965.40765, trades=41, avg_exposure=0.3698485576965898, actions={'hold_count': 80, 'buy_count': 21, 'sell_count': 20, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed5: final_equity=1946575.451749999, trades=46, avg_exposure=0.5888480216453278, actions={'hold_count': 75, 'buy_count': 22, 'sell_count': 24, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed5: final_equity=1339653.4736399997, trades=32, avg_exposure=0.7727349346641537, actions={'hold_count': 89, 'buy_count': 17, 'sell_count': 15, 'total_actions': 121}
+- 002475_double_dueling_dqn_one_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed5: final_equity=1248543.2498899999, trades=22, avg_exposure=0.6384320220632663, actions={'hold_count': 99, 'buy_count': 11, 'sell_count': 11, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed1: final_equity=1101273.44526, trades=27, avg_exposure=0.3636297517586627, actions={'hold_count': 94, 'buy_count': 14, 'sell_count': 13, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed1: final_equity=1211506.70237, trades=22, avg_exposure=0.7747818186421215, actions={'hold_count': 99, 'buy_count': 12, 'sell_count': 10, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed1: final_equity=1491846.5787300002, trades=20, avg_exposure=0.3181752268869896, actions={'hold_count': 101, 'buy_count': 10, 'sell_count': 10, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed1: final_equity=840491.1097200003, trades=37, avg_exposure=0.499986062296579, actions={'hold_count': 84, 'buy_count': 19, 'sell_count': 18, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed1: final_equity=1365427.54635, trades=19, avg_exposure=0.20248114845695503, actions={'hold_count': 102, 'buy_count': 10, 'sell_count': 9, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed2: final_equity=1213132.15482, trades=11, avg_exposure=0.19420836057183477, actions={'hold_count': 110, 'buy_count': 6, 'sell_count': 5, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed2: final_equity=1268766.29836, trades=32, avg_exposure=0.6673454534697771, actions={'hold_count': 89, 'buy_count': 17, 'sell_count': 15, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed2: final_equity=823390.3211500003, trades=31, avg_exposure=0.48138348119166596, actions={'hold_count': 90, 'buy_count': 16, 'sell_count': 15, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed2: final_equity=1217481.0896699997, trades=29, avg_exposure=0.6425470709340582, actions={'hold_count': 92, 'buy_count': 15, 'sell_count': 14, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed2: final_equity=1200117.06338, trades=33, avg_exposure=0.5165266204853132, actions={'hold_count': 88, 'buy_count': 18, 'sell_count': 15, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed3: final_equity=1258093.35542, trades=12, avg_exposure=0.13842725782260265, actions={'hold_count': 109, 'buy_count': 6, 'sell_count': 6, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed3: final_equity=1092399.28454, trades=14, avg_exposure=0.5888234524860854, actions={'hold_count': 107, 'buy_count': 7, 'sell_count': 7, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed3: final_equity=1286963.3759999997, trades=12, avg_exposure=0.13842900659720178, actions={'hold_count': 109, 'buy_count': 5, 'sell_count': 7, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed3: final_equity=995631.35738, trades=45, avg_exposure=0.6053840285756901, actions={'hold_count': 76, 'buy_count': 23, 'sell_count': 22, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed3: final_equity=1293190.6071600001, trades=8, avg_exposure=0.16322215693236258, actions={'hold_count': 113, 'buy_count': 4, 'sell_count': 4, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed4: final_equity=1034299.1246100003, trades=11, avg_exposure=0.811964771816665, actions={'hold_count': 110, 'buy_count': 6, 'sell_count': 5, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed4: final_equity=1222302.3368500008, trades=25, avg_exposure=0.3615627989169683, actions={'hold_count': 96, 'buy_count': 12, 'sell_count': 13, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed4: final_equity=876125.2386000007, trades=48, avg_exposure=0.5723279316301809, actions={'hold_count': 73, 'buy_count': 25, 'sell_count': 23, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed4: final_equity=1178163.2796899995, trades=40, avg_exposure=0.6446175950552147, actions={'hold_count': 81, 'buy_count': 19, 'sell_count': 21, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed4: final_equity=864256.79013, trades=49, avg_exposure=0.4421530867694663, actions={'hold_count': 72, 'buy_count': 26, 'sell_count': 23, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_without_nlp_seed5: final_equity=1185620.33787, trades=31, avg_exposure=0.5000055952380547, actions={'hold_count': 90, 'buy_count': 17, 'sell_count': 14, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_sentiment_nlp_seed5: final_equity=1362279.7903300002, trades=32, avg_exposure=0.6384248287076913, actions={'hold_count': 89, 'buy_count': 16, 'sell_count': 16, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_sector_impact_nlp_seed5: final_equity=1290903.4033099997, trades=30, avg_exposure=0.3140492131819306, actions={'hold_count': 91, 'buy_count': 16, 'sell_count': 14, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_sentiment_nlp_seed5: final_equity=1747894.731169999, trades=50, avg_exposure=0.4276788857784748, actions={'hold_count': 71, 'buy_count': 25, 'sell_count': 25, 'total_actions': 121}
+- 002475_double_dueling_dqn_three_day_return_normalized_plus_target_position_dqn_with_marketwide_impact_nlp_seed5: final_equity=1513184.8006899995, trades=44, avg_exposure=0.27689151839463444, actions={'hold_count': 77, 'buy_count': 21, 'sell_count': 23, 'total_actions': 121}
+
+## Acceptance Status
+- target_position_buy_count_positive: True
+- target_position_sell_count_positive: True
+- average_exposure_above_0_10: True
+- hold_ratio_below_0_90: True
+- unique_portfolio_values_above_10: True
 
 ## Validation Status
-
-- python -m compileall src scripts tests: PASSED
-- python scripts/run_model_upgrade_grid.py --quick-test: PASSED
-- dashboard launch at http://127.0.0.1:8501: PASSED
-- pytest -q: PASSED (26 passed)
+- python -m compileall src scripts tests: passed
+- pytest -q: passed (31 passed)
+- python scripts/run_model_upgrade_grid.py --quick-test: passed
+- python scripts/run_model_upgrade_grid.py --medium-test: passed
+- dashboard launch: passed at http://127.0.0.1:8501; health check /_stcore/health returned 200
+- quick-test acceptance: passed
+- medium-test acceptance: passed
+- policy remains hold-heavy: no, medium-test acceptance thresholds passed
+- official baseline action_mode: discrete_trade
+- model-upgrade grid default action_mode: target_position
+- git push performed: no

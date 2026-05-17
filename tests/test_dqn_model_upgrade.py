@@ -22,6 +22,14 @@ def test_dqn_variants_forward_and_train_step() -> None:
         assert np.isfinite(loss)
 
 
+def test_target_position_dqn_uses_five_action_outputs() -> None:
+    config = DQNConfig(state_dim=4, action_mode="target_position")
+    agent = DQNAgent(config)
+    q_values = agent.online(torch.zeros((2, 4), dtype=torch.float32))
+    assert config.action_dim == 5
+    assert tuple(q_values.shape) == (2, 5)
+
+
 def test_dqn_config_rejects_unknown_variant() -> None:
     try:
         DQNConfig(state_dim=4, model_variant="not_a_dqn")
@@ -31,7 +39,7 @@ def test_dqn_config_rejects_unknown_variant() -> None:
         raise AssertionError("unknown model_variant should fail")
 
 
-def test_reward_variant_and_hold_penalty_are_logged() -> None:
+def test_reward_variant_and_flat_penalty_are_logged() -> None:
     data = pd.DataFrame(
         {
             "date": pd.date_range("2026-01-01", periods=6),
@@ -51,9 +59,11 @@ def test_reward_variant_and_hold_penalty_are_logged() -> None:
         ["price", "MA50", "MA200", "RSI", "MACD", "position", "cash", "nlp_signal_score"],
         initial_cash=1000,
         reward_variant="three_day_return",
-        hold_penalty_enabled=True,
-        hold_penalty=0.01,
-        hold_penalty_after_days=1,
+        training_mode=True,
+        flat_penalty_enabled=True,
+        flat_penalty=0.01,
+        flat_penalty_after_days=1,
+        flat_exposure_threshold=0.05,
     )
     env.reset()
     _state, first_reward, done, _info = env.step(0)
@@ -61,5 +71,5 @@ def test_reward_variant_and_hold_penalty_are_logged() -> None:
     _state, second_reward, _done, _info = env.step(0)
     log = env.trading_log()
     assert log["reward_variant"].iloc[0] == "three_day_return"
-    assert log["hold_penalty_applied"].iloc[1] == 0.01
+    assert log["flat_penalty_applied"].iloc[1] == 0.01
     assert second_reward < first_reward

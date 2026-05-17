@@ -10,10 +10,9 @@ from src.evaluation.model_upgrade import NORMALIZED_PLUS_COLUMNS, _model_summary
 def test_normalized_plus_contains_requested_nlp_derived_features() -> None:
     assert "abs_nlp_signal" in NORMALIZED_PLUS_COLUMNS
     assert "nlp_signal_3day_mean" in NORMALIZED_PLUS_COLUMNS
-    assert "nlp_signal_5day_mean" in NORMALIZED_PLUS_COLUMNS
     assert "nlp_signal_change" in NORMALIZED_PLUS_COLUMNS
-    assert "relative_signal" in NORMALIZED_PLUS_COLUMNS
-    assert "marketwide_residual_signal" in NORMALIZED_PLUS_COLUMNS
+    assert "MACD_zscore" in NORMALIZED_PLUS_COLUMNS
+    assert "nlp_signal_5day_mean" not in NORMALIZED_PLUS_COLUMNS
 
 
 def test_model_upgrade_summary_schema() -> None:
@@ -26,6 +25,11 @@ def test_model_upgrade_summary_schema() -> None:
                 "model_variant": "vanilla_dqn",
                 "reward_variant": "one_day_return",
                 "state_feature_mode": "official_8d",
+                "action_mode": "target_position",
+                "run_mode": "quick_test",
+                "episodes": 5,
+                "max_seeds": 2,
+                "timestamp": "2026-05-18T00:00:00",
                 "seed": 1,
                 "final_equity": 1_010_000,
                 "cumulative_return": 0.01,
@@ -33,7 +37,9 @@ def test_model_upgrade_summary_schema() -> None:
                 "max_drawdown": 0.02,
                 "number_of_trades": 2,
                 "exposure_ratio": 0.4,
+                "average_exposure": 0.45,
                 "turnover": 0.01,
+                "unique_portfolio_values": 12,
             }
         ]
     )
@@ -49,11 +55,13 @@ def test_model_upgrade_summary_schema() -> None:
         "mean_max_drawdown",
         "mean_number_of_trades",
         "mean_exposure_ratio",
+        "mean_average_exposure",
         "mean_turnover",
+        "mean_unique_portfolio_values",
     }
     assert expected.issubset(summary.columns)
     reward = _reward_comparison(seed)
-    assert {"reward_variant", "mean_final_equity", "mean_exposure_ratio"}.issubset(reward.columns)
+    assert {"run_mode", "action_mode", "reward_variant", "mean_final_equity", "mean_exposure_ratio"}.issubset(reward.columns)
 
 
 def test_dashboard_has_model_upgrade_missing_file_fallback() -> None:
@@ -62,3 +70,5 @@ def test_dashboard_has_model_upgrade_missing_file_fallback() -> None:
     assert "No model upgrade results found. Run scripts/run_model_upgrade_grid.py first." in source
     assert "model_upgrade_summary.csv" in source
     assert "action_distribution_diagnostics.csv" in source
+    assert "env_dynamics_diagnostics.csv" in source
+    assert "exploration_diagnostics.csv" in source
