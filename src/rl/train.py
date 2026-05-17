@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -70,6 +71,11 @@ def train_dqn(
     seed: int = 42,
     dqn_config: DQNConfig | None = None,
     reward_mode: str = "portfolio_return",
+    reward_variant: str | None = None,
+    risk_lambda: float | None = None,
+    hold_penalty_enabled: bool | None = None,
+    hold_penalty: float | None = None,
+    hold_penalty_after_days: int | None = None,
     initial_state_dict: dict[str, torch.Tensor] | None = None,
     initial_epsilon: float | None = None,
     state_scaler: dict[str, dict[str, float]] | None = None,
@@ -80,7 +86,20 @@ def train_dqn(
     if len(data) < 3:
         raise ValueError("At least 3 market rows are required for DQN training.")
     seed_everything(seed)
-    agent = DQNAgent(dqn_config or DQNConfig(state_dim=len(state_columns), seed=seed))
+    config = dqn_config or DQNConfig(state_dim=len(state_columns), seed=seed)
+    config = replace(config, state_dim=len(state_columns), seed=seed)
+    decay_steps = max(1, int(max(1, episodes) * max(0.0, min(1.0, config.epsilon_decay_ratio)) * max(1, len(data) - 1)))
+    if config.epsilon_start > 0 and config.epsilon_end > 0:
+        scheduled_decay = (config.epsilon_end / config.epsilon_start) ** (1.0 / decay_steps)
+        config.epsilon_decay = float(min(1.0, max(0.0, scheduled_decay)))
+        config.epsilon = float(config.epsilon_start)
+        config.epsilon_min = float(config.epsilon_end)
+    active_reward_variant = reward_variant or config.reward_variant
+    active_risk_lambda = config.risk_lambda if risk_lambda is None else float(risk_lambda)
+    active_hold_penalty_enabled = config.hold_penalty_enabled if hold_penalty_enabled is None else bool(hold_penalty_enabled)
+    active_hold_penalty = config.hold_penalty if hold_penalty is None else float(hold_penalty)
+    active_hold_penalty_after_days = config.hold_penalty_after_days if hold_penalty_after_days is None else int(hold_penalty_after_days)
+    agent = DQNAgent(config)
     if initial_state_dict is not None:
         agent.online.load_state_dict(initial_state_dict)
         agent.target.load_state_dict(initial_state_dict)
@@ -91,7 +110,19 @@ def train_dqn(
     final_log = pd.DataFrame()
 
     for episode in range(1, episodes + 1):
-        env = FinancialTradingEnv(data, state_columns, initial_cash, transaction_cost, seed=seed, reward_mode=reward_mode)
+        env = FinancialTradingEnv(
+            data,
+            state_columns,
+            initial_cash,
+            transaction_cost,
+            seed=seed,
+            reward_mode=reward_mode,
+            reward_variant=active_reward_variant,
+            risk_lambda=active_risk_lambda,
+            hold_penalty_enabled=active_hold_penalty_enabled,
+            hold_penalty=active_hold_penalty,
+            hold_penalty_after_days=active_hold_penalty_after_days,
+        )
         state = normalize_state(env.reset(), state_columns, scaler)
         done = False
         total_reward = 0.0
@@ -113,6 +144,11 @@ def train_dqn(
                 "seed": seed,
                 "loss": last_loss,
                 "reward_mode": reward_mode,
+                "reward_variant": active_reward_variant,
+                "model_variant": agent.config.model_variant,
+                "loss_type": agent.config.loss_type,
+                "grad_clip_norm": agent.config.grad_clip_norm,
+                "state_feature_mode": agent.config.state_feature_mode,
                 "state_normalized": True,
             }
         )
@@ -131,6 +167,8 @@ def train_dqn(
                         "experiment": experiment,
                         "seed": seed,
                         "reward_mode": reward_mode,
+                        "reward_variant": active_reward_variant,
+                        "model_variant": agent.config.model_variant,
                     }
                 )
 
@@ -155,9 +193,27 @@ def evaluate_agent(
     seed: int = 42,
     reward_mode: str = "portfolio_return",
     state_scaler: dict[str, dict[str, float]] | None = None,
+    reward_variant: str | None = None,
+    risk_lambda: float | None = None,
+    hold_penalty_enabled: bool | None = None,
+    hold_penalty: float | None = None,
+    hold_penalty_after_days: int | None = None,
 ) -> pd.DataFrame:
     seed_everything(seed)
-    env = FinancialTradingEnv(data, state_columns, initial_cash, transaction_cost, seed=seed, reward_mode=reward_mode)
+    active_reward_variant = reward_variant or agent.config.reward_variant
+    env = FinancialTradingEnv(
+        data,
+        state_columns,
+        initial_cash,
+        transaction_cost,
+        seed=seed,
+        reward_mode=reward_mode,
+        reward_variant=active_reward_variant,
+        risk_lambda=agent.config.risk_lambda if risk_lambda is None else float(risk_lambda),
+        hold_penalty_enabled=agent.config.hold_penalty_enabled if hold_penalty_enabled is None else bool(hold_penalty_enabled),
+        hold_penalty=agent.config.hold_penalty if hold_penalty is None else float(hold_penalty),
+        hold_penalty_after_days=agent.config.hold_penalty_after_days if hold_penalty_after_days is None else int(hold_penalty_after_days),
+    )
     scaler = state_scaler or build_state_scaler(data, state_columns, initial_cash)
     state = normalize_state(env.reset(), state_columns, scaler)
     done = False

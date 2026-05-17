@@ -20,6 +20,10 @@ htmlcov/
 !.env.example
 
 outputs/
+!outputs/
+outputs/*
+!outputs/model_upgrade/
+!outputs/model_upgrade/*
 data/integrated/
 *.db
 data/*.db

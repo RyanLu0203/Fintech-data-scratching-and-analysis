@@ -11,6 +11,7 @@ ACTION_HOLD = 0
 ACTION_BUY = 1
 ACTION_SELL = 2
 ACTION_NAMES = {ACTION_HOLD: "Hold", ACTION_BUY: "Buy", ACTION_SELL: "Sell"}
+REWARD_VARIANTS = {"one_day_return", "three_day_return", "five_day_return", "risk_adjusted_return"}
 
 
 class FinancialTradingEnv:
@@ -32,6 +33,11 @@ class FinancialTradingEnv:
         reward_mode: str = "portfolio_return",
         turnover_penalty: float = 0.001,
         drawdown_penalty: float = 0.1,
+        reward_variant: str = "one_day_return",
+        risk_lambda: float = 0.1,
+        hold_penalty_enabled: bool = True,
+        hold_penalty: float = 0.00005,
+        hold_penalty_after_days: int = 10,
     ) -> None:
         self.data = data.sort_values("date").reset_index(drop=True).copy()
         self.state_columns = state_columns or STATE_COLUMNS
@@ -41,6 +47,13 @@ class FinancialTradingEnv:
         self.reward_mode = reward_mode
         self.turnover_penalty = float(turnover_penalty)
         self.drawdown_penalty = float(drawdown_penalty)
+        if reward_variant not in REWARD_VARIANTS:
+            raise ValueError(f"reward_variant must be one of {sorted(REWARD_VARIANTS)}")
+        self.reward_variant = reward_variant
+        self.risk_lambda = float(risk_lambda)
+        self.hold_penalty_enabled = bool(hold_penalty_enabled)
+        self.hold_penalty = float(hold_penalty)
+        self.hold_penalty_after_days = int(hold_penalty_after_days)
         self.reset()
 
     def reset(self) -> np.ndarray:
@@ -48,6 +61,7 @@ class FinancialTradingEnv:
         self.cash = self.initial_cash
         self.shares = 0.0
         self.peak_value = self.initial_cash
+        self.consecutive_hold_days = 0
         self.logs: list[dict[str, float | str | int]] = []
         return self._state()
 
@@ -56,9 +70,7 @@ class FinancialTradingEnv:
             raise IndexError("Environment is already done; call reset() before stepping again.")
 
         row = self.data.loc[self.index]
-        next_row = self.data.loc[self.index + 1]
         trade_price = self._execution_price(row)
-        next_value_price = self._valuation_price(next_row)
 
         executed_action = ACTION_HOLD
         transaction_cost_amount = 0.0
@@ -78,13 +90,22 @@ class FinancialTradingEnv:
             self.shares = 0.0
             executed_action = ACTION_SELL
 
+        if executed_action == ACTION_HOLD:
+            self.consecutive_hold_days += 1
+        else:
+            self.consecutive_hold_days = 0
+
         portfolio_value_t = self.cash + self.shares * trade_price
-        portfolio_value_t1 = self.cash + self.shares * next_value_price
-        base_reward = 0.0 if portfolio_value_t == 0 else (portfolio_value_t1 - portfolio_value_t) / portfolio_value_t
+        portfolio_value_t1 = self._future_portfolio_value(1)
+        base_reward = self._base_reward(portfolio_value_t)
         turnover = 0.0 if portfolio_value_t == 0 else transaction_cost_amount / portfolio_value_t
         self.peak_value = max(self.peak_value, portfolio_value_t1)
         drawdown = 0.0 if self.peak_value == 0 else max(0.0, (self.peak_value - portfolio_value_t1) / self.peak_value)
         reward = self._reward(base_reward, turnover, drawdown)
+        hold_penalty_applied = 0.0
+        if self.hold_penalty_enabled and executed_action == ACTION_HOLD and self.consecutive_hold_days > self.hold_penalty_after_days:
+            hold_penalty_applied = self.hold_penalty
+            reward -= hold_penalty_applied
 
         self.logs.append(
             {
@@ -101,6 +122,10 @@ class FinancialTradingEnv:
                 "turnover": float(turnover),
                 "drawdown": float(drawdown),
                 "reward_mode": self.reward_mode,
+                "reward_variant": self.reward_variant,
+                "consecutive_hold_days": int(self.consecutive_hold_days),
+                "hold_penalty_applied": float(hold_penalty_applied),
+                "exposure_ratio_step": float(1.0 if self.shares > 0 else 0.0),
                 "seed": self.seed if self.seed is not None else np.nan,
             }
         )
@@ -112,8 +137,30 @@ class FinancialTradingEnv:
             "portfolio_value_t": float(portfolio_value_t),
             "portfolio_value_t1": float(portfolio_value_t1),
             "action": ACTION_NAMES[executed_action],
+            "reward_variant": self.reward_variant,
+            "hold_penalty_applied": float(hold_penalty_applied),
         }
         return next_state, float(reward), bool(done), info
+
+    def _base_reward(self, portfolio_value_t: float) -> float:
+        if portfolio_value_t == 0:
+            return 0.0
+        if self.reward_variant == "one_day_return":
+            return (self._future_portfolio_value(1) - portfolio_value_t) / portfolio_value_t
+        if self.reward_variant == "three_day_return":
+            return (self._future_portfolio_value(3) - portfolio_value_t) / portfolio_value_t
+        if self.reward_variant == "five_day_return":
+            return (self._future_portfolio_value(5) - portfolio_value_t) / portfolio_value_t
+        if self.reward_variant == "risk_adjusted_return":
+            base_return = (self._future_portfolio_value(1) - portfolio_value_t) / portfolio_value_t
+            downside_penalty = self.risk_lambda * max(0.0, -base_return) ** 2
+            return base_return - downside_penalty
+        raise ValueError(f"Unsupported reward_variant: {self.reward_variant}")
+
+    def _future_portfolio_value(self, horizon_days: int) -> float:
+        target_index = min(self.index + max(int(horizon_days), 1), len(self.data) - 1)
+        value_price = self._valuation_price(self.data.loc[target_index])
+        return float(self.cash + self.shares * value_price)
 
     def _reward(self, base_reward: float, turnover: float, drawdown: float) -> float:
         if self.reward_mode == "portfolio_return":
@@ -131,6 +178,10 @@ class FinancialTradingEnv:
         row = self.data.loc[min(self.index, len(self.data) - 1)].copy()
         row["position"] = self.shares
         row["cash"] = self.cash
+        valuation_price = self._valuation_price(row)
+        portfolio_value = max(float(self.cash + self.shares * valuation_price), 1e-9)
+        row["position_ratio"] = float((self.shares * valuation_price) / portfolio_value)
+        row["cash_ratio"] = float(self.cash / portfolio_value)
         return pd.to_numeric(row[self.state_columns], errors="coerce").fillna(0.0).astype(float).to_numpy()
 
     def _execution_price(self, row: pd.Series) -> float:

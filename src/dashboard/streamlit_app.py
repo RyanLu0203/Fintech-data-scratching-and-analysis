@@ -22,7 +22,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from pandas.errors import EmptyDataError, ParserError
 
-from src.config.paths import STOCK_OUTPUT_ROOT, SYSTEM_OUTPUT_DIR, normalize_symbol_for_path, stock_data_dir, stock_reports_dir, stock_results_dir
+from src.config.paths import OUTPUTS_ROOT, STOCK_OUTPUT_ROOT, SYSTEM_OUTPUT_DIR, normalize_symbol_for_path, stock_data_dir, stock_reports_dir, stock_results_dir
 from src.config.settings import PROJECT_ROOT, settings
 from src.data_ingestion.cache import build_master_csv, resolve_cached_csv
 from src.evaluation.cross_stock import build_cross_stock_summary
@@ -130,6 +130,7 @@ OFFICIAL_STOCK_REPORT_FILES = [
     "market_impact_report_section.md",
     "market_impact_experiment_window.csv",
 ]
+MODEL_UPGRADE_DIR = OUTPUTS_ROOT / "model_upgrade"
 OFFICIAL_SYSTEM_FILES = [
     SYSTEM_OUTPUT_DIR / "latest_peer_nlp_run_status.json",
     SYSTEM_OUTPUT_DIR / "latest_peer_nlp_run_log.csv",
@@ -2246,9 +2247,109 @@ def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, obje
             st.dataframe(diagnostics, use_container_width=True, hide_index=True)
 
 
+def render_model_upgrade_diagnostics(symbol: str) -> None:
+    st.subheader("Model Upgrade Diagnostics")
+    summary = safe_read_csv(MODEL_UPGRADE_DIR / "model_upgrade_summary.csv")
+    seed_metrics = safe_read_csv(MODEL_UPGRADE_DIR / "seed_level_metrics.csv")
+    actions = safe_read_csv(MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv")
+    reward_compare = safe_read_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv")
+    state_features = safe_read_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv")
+
+    if summary.empty or seed_metrics.empty:
+        st.info("No model upgrade results found. Run scripts/run_model_upgrade_grid.py first.")
+        return
+
+    code = normalize_symbol_for_path(symbol)
+    if "target_symbol" in summary.columns:
+        summary = summary[summary["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in seed_metrics.columns:
+        seed_metrics = seed_metrics[seed_metrics["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in actions.columns:
+        actions = actions[actions["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in reward_compare.columns:
+        reward_compare = reward_compare[reward_compare["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+
+    if summary.empty or seed_metrics.empty:
+        st.info("No model upgrade results found. Run scripts/run_model_upgrade_grid.py first.")
+        return
+
+    selector_cols = st.columns(3)
+    model_options = sorted(seed_metrics["model_variant"].dropna().astype(str).unique().tolist()) if "model_variant" in seed_metrics.columns else []
+    reward_options = sorted(seed_metrics["reward_variant"].dropna().astype(str).unique().tolist()) if "reward_variant" in seed_metrics.columns else []
+    state_options = sorted(seed_metrics["state_feature_mode"].dropna().astype(str).unique().tolist()) if "state_feature_mode" in seed_metrics.columns else []
+    selected_model = selector_cols[0].selectbox("model_variant", model_options, index=0) if model_options else ""
+    selected_reward = selector_cols[1].selectbox("reward_variant", reward_options, index=0) if reward_options else ""
+    selected_state = selector_cols[2].selectbox("state_feature_mode", state_options, index=0) if state_options else ""
+
+    def _filter(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return frame
+        out = frame.copy()
+        for column, value in [("model_variant", selected_model), ("reward_variant", selected_reward), ("state_feature_mode", selected_state)]:
+            if column in out.columns and value:
+                out = out[out[column].astype(str) == str(value)]
+        return out
+
+    filtered_seed = _filter(seed_metrics)
+    filtered_summary = _filter(summary)
+    filtered_actions = _filter(actions)
+
+    st.markdown("#### Seed-level final equity")
+    _render_box_or_table(filtered_seed, metric="final_equity")
+    st.markdown("#### Seed-level Sharpe ratio")
+    _render_box_or_table(filtered_seed, metric="sharpe_ratio")
+
+    if not filtered_actions.empty and {"experiment", "hold_ratio", "buy_ratio", "sell_ratio"}.issubset(filtered_actions.columns):
+        action_plot = filtered_actions.copy()
+        for column in ["hold_ratio", "buy_ratio", "sell_ratio"]:
+            action_plot[column] = pd.to_numeric(action_plot[column], errors="coerce")
+        action_frame = action_plot.groupby("experiment")[["hold_ratio", "buy_ratio", "sell_ratio"]].mean().rename(index=_display_experiment_name)
+        render_multi_series(action_frame, title="Average action distribution by experiment", kind="bar", height=340)
+
+    if not filtered_seed.empty and {"experiment", "exposure_ratio"}.issubset(filtered_seed.columns):
+        exposure = filtered_seed.copy()
+        exposure["exposure_ratio"] = pd.to_numeric(exposure["exposure_ratio"], errors="coerce")
+        exposure_frame = exposure.groupby("experiment")["exposure_ratio"].mean().to_frame("exposure_ratio").rename(index=_display_experiment_name)
+        render_multi_series(exposure_frame, title="Mean exposure ratio by experiment", kind="bar", color_map={"exposure_ratio": PALETTE["teal"]}, height=300)
+
+    st.markdown("#### model_upgrade_summary.csv")
+    st.dataframe(filtered_summary, use_container_width=True, hide_index=True)
+    if not reward_compare.empty:
+        with st.expander("reward_variant_comparison.csv", expanded=False):
+            st.dataframe(_filter(reward_compare), use_container_width=True, hide_index=True)
+    if not state_features.empty:
+        with st.expander("state_feature_diagnostics.csv", expanded=False):
+            st.dataframe(state_features.head(500), use_container_width=True, hide_index=True)
+
+
+def _render_box_or_table(frame: pd.DataFrame, metric: str) -> None:
+    if frame.empty or metric not in frame.columns or "experiment" not in frame.columns:
+        st.info("No chart-ready rows are available yet.")
+        return
+    chart = frame.copy()
+    chart[metric] = pd.to_numeric(chart[metric], errors="coerce")
+    chart = chart.dropna(subset=[metric])
+    if chart.empty:
+        st.info("No chart-ready rows are available yet.")
+        return
+    fig = go.Figure()
+    for index, (experiment, part) in enumerate(chart.groupby("experiment")):
+        label = _display_experiment_name(experiment)
+        fig.add_trace(
+            go.Box(
+                y=part[metric],
+                name=label,
+                marker={"color": EXPERIMENT_COLORS.get(str(experiment), SERIES_COLORS[index % len(SERIES_COLORS)])},
+                boxmean=True,
+            )
+        )
+    fig.update_layout(**_base_layout(title=metric, height=340))
+    _render_plot(fig)
+
+
 def render_result_review_dashboard(symbol: str) -> None:
     bundle = load_stock_bundle(symbol)
-    tabs = st.tabs(["Single Stock Basics", "Scraping Density", "Peer Cross Analysis", "Market Impact Analysis"])
+    tabs = st.tabs(["Single Stock Basics", "Scraping Density", "Peer Cross Analysis", "Market Impact Analysis", "Model Upgrade Diagnostics"])
     with tabs[0]:
         render_single_stock_basic_page(symbol, bundle)
     with tabs[1]:
@@ -2257,6 +2358,8 @@ def render_result_review_dashboard(symbol: str) -> None:
         render_peer_cross_analysis_for_symbol(symbol, bundle)
     with tabs[3]:
         render_market_impact_analysis_for_symbol(symbol, bundle)
+    with tabs[4]:
+        render_model_upgrade_diagnostics(symbol)
 
 
 def _figure_to_html(fig: go.Figure, *, include_plotlyjs: bool = False) -> str:

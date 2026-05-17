@@ -22,6 +22,16 @@ class Settings:
     market_impact_horizon_days: int = int(os.getenv("MARKET_IMPACT_HORIZON_DAYS", "3"))
     market_impact_pos_threshold: float = float(os.getenv("MARKET_IMPACT_POS_THRESHOLD", "0.015"))
     market_impact_neg_threshold: float = float(os.getenv("MARKET_IMPACT_NEG_THRESHOLD", "-0.015"))
+    model_variant: str = os.getenv("MODEL_VARIANT", "vanilla_dqn")
+    loss_type: str = os.getenv("LOSS_TYPE", "huber")
+    grad_clip_norm: float = float(os.getenv("GRAD_CLIP_NORM", "1.0"))
+    epsilon_decay_ratio: float = float(os.getenv("EPSILON_DECAY_RATIO", "0.70"))
+    reward_variant: str = os.getenv("REWARD_VARIANT", "one_day_return")
+    risk_lambda: float = float(os.getenv("RISK_LAMBDA", "0.1"))
+    state_feature_mode: str = os.getenv("STATE_FEATURE_MODE", "official_8d")
+    hold_penalty_enabled: bool = os.getenv("HOLD_PENALTY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    hold_penalty: float = float(os.getenv("HOLD_PENALTY", "0.00005"))
+    hold_penalty_after_days: int = int(os.getenv("HOLD_PENALTY_AFTER_DAYS", "10"))
     model_dir: Path = OUTPUTS_ROOT / "models"
     report_dir: Path = OUTPUTS_ROOT / "reports"
 
