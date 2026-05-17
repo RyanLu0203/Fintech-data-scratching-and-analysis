@@ -147,6 +147,7 @@ def run_ablation_study(
                 experiment="dqn_without_nlp",
                 seed=seed,
                 reward_mode=reward_mode,
+                state_scaler=without.get("state_scaler"),
             )
             trading_logs.append(without_log)
             without_curve = _curve_from_log(without_log, "dqn_without_nlp", seed)
@@ -176,6 +177,7 @@ def run_ablation_study(
                 experiment="dqn_with_nlp",
                 seed=seed,
                 reward_mode=reward_mode,
+                state_scaler=with_nlp.get("state_scaler"),
             )
             trading_logs.append(with_log)
             with_curve = _curve_from_log(with_log, "dqn_with_nlp", seed)
@@ -372,6 +374,7 @@ def run_coverage_controlled_ablation_study(
                     experiment=experiment,
                     seed=seed,
                     reward_mode=reward_mode,
+                    state_scaler=trained.get("state_scaler"),
                 )
                 log["training_period"] = "market_learning_low_density_or_long_history"
                 log["evaluation_period"] = "high_information_density"

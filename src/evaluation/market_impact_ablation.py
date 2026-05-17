@@ -482,6 +482,7 @@ def run_market_impact_ablation_study(
                 experiment=experiment,
                 seed=seed,
                 reward_mode=reward_mode,
+                state_scaler=trained.get("state_scaler"),
             )
             log["official_experiment"] = MARKET_IMPACT_EXPERIMENT
             log["training_period"] = split_info.get("training_period_label", "target_market_learning_window")

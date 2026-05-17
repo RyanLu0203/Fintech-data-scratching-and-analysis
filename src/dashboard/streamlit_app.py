@@ -74,6 +74,16 @@ EXPERIMENT_DISPLAY_NAMES = {
     "dqn_with_sector_impact_nlp": "Sector Impact",
     "dqn_with_marketwide_impact_nlp": "Marketwide Impact",
 }
+CORE_EXPERIMENT_METRICS = [
+    "final_equity",
+    "cumulative_return",
+    "annualized_return",
+    "annualized_volatility",
+    "sharpe_ratio",
+    "max_drawdown",
+    "number_of_trades",
+    "win_rate",
+]
 CONSUMER_ELECTRONICS_EXAMPLE_SYMBOLS = ["002475", "002241", "300433", "300136", "601138", "601231"]
 CONSUMER_ELECTRONICS_EXAMPLE_LABEL = "Consumer electronics example: Luxshare / GoerTek / Lens / Sunway / FII / USI"
 PLOT_CONFIG = {
@@ -260,6 +270,16 @@ def _display_experiment_name(experiment: object) -> str:
 
 def _display_experiment_color_map() -> dict[str, str]:
     return {_display_experiment_name(key): value for key, value in EXPERIMENT_COLORS.items()}
+
+
+def _official_metric_table(metrics: pd.DataFrame) -> pd.DataFrame:
+    if metrics.empty:
+        return metrics
+    display = metrics.copy()
+    if "experiment" in display.columns:
+        display.insert(0, "strategy_label", display["experiment"].map(_display_experiment_name).fillna(display["experiment"].astype(str)))
+    columns = [col for col in ["strategy_label", "experiment", "seed_count", *CORE_EXPERIMENT_METRICS] if col in display.columns]
+    return display[columns] if columns else display
 
 
 def rerun_dashboard() -> None:
@@ -1605,7 +1625,7 @@ def render_rl_ablation_page(bundle: dict[str, object]) -> None:
         st.info("Main view: official peer-sector NLP transfer. Legacy stock-level NLP is excluded from this section.")
         st.markdown("#### Official peer NLP ablation")
         st.caption("The target stock is held out from NLP training. DQN trains on the earlier market-learning window and tests in the target high-density window.")
-        st.dataframe(metrics, use_container_width=True)
+        st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
         cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown"] if col in metrics.columns]
         if cols:
             render_multi_series(metrics.set_index("experiment")[cols], kind="bar", height=360)
@@ -2033,7 +2053,8 @@ def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]
     if isinstance(metrics, pd.DataFrame) and not metrics.empty:
         st.markdown("#### Official Peer NLP Ablation Metrics")
         metrics = metrics.copy()
-        st.dataframe(metrics, use_container_width=True, hide_index=True)
+        st.caption("每个 DQN group 展示同一套 8 个官方指标；seed/std/turnover 等诊断列仍保留在导出的 CSV。")
+        st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
         metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown"] if col in metrics.columns]
         if "experiment" in metrics.columns and metric_cols:
             chart_metrics = metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce")
@@ -2143,7 +2164,8 @@ def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, obje
         render_series_bar(daily, "date", "target_news_count", title="Target news count for impact scoring", color=PALETTE["amber"], height=300)
 
     st.markdown("#### Market-impact Ablation Metrics")
-    st.dataframe(metrics, use_container_width=True, hide_index=True)
+    st.caption("主表展示五个 DQN group 的 8 个官方指标；buy-and-hold 只是 benchmark，不计入五组实验。")
+    st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
     metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades"] if col in metrics.columns]
     if "experiment" in metrics.columns and metric_cols:
         chart_metrics = metrics.copy()
@@ -2603,7 +2625,10 @@ def experiment_anomaly_rows(symbols: list[str], *, include_market_impact: bool) 
                     match = peer_diag[
                         (peer_diag["experiment"].astype(str) == experiment)
                         & (peer_diag["period"].astype(str) == "train")
-                        & (peer_diag["state_column"].astype(str).str.contains("sentiment_score", na=False))
+                        & (
+                            peer_diag["state_column"].astype(str).eq("nlp_signal_score")
+                            | peer_diag["state_column"].astype(str).str.contains("sentiment_score", na=False)
+                        )
                     ]
                     if not match.empty:
                         evidence += f"; train_nonzero_signal={int(pd.to_numeric(match['nonzero_count'], errors='coerce').fillna(0).sum())}"

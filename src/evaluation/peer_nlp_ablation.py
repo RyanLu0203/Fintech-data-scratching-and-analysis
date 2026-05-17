@@ -43,6 +43,8 @@ from src.rl.train import evaluate_agent, train_dqn
 WITHOUT_NLP_STATE_COLUMNS = ["price", "MA50", "MA200", "RSI", "MACD", "position", "cash"]
 SECTOR_PEER_NLP_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_sentiment_score"]
 MARKETWIDE_PEER_NLP_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["marketwide_sentiment_score"]
+UNIFIED_NLP_STATE_COLUMN = "nlp_signal_score"
+UNIFIED_DQN_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + [UNIFIED_NLP_STATE_COLUMN]
 PEER_NLP_SIGNAL_COLUMNS = ["sector_sentiment_score", "marketwide_sentiment_score", "target_news_available"]
 OFFICIAL_EXPERIMENT = "peer_sector_nlp_transfer"
 LEGACY_EXPERIMENT = "stock_level_nlp"
@@ -128,16 +130,18 @@ def run_peer_nlp_ablation_study(
     corpus_status = _corpus_status(peer_daily)
     target_coverage = _target_sentiment_coverage(peer_daily)
 
-    state_specs = {
-        "dqn_without_nlp": {"columns": WITHOUT_NLP_STATE_COLUMNS, "ready": True},
-        "dqn_with_sector_peer_nlp": {"columns": SECTOR_PEER_NLP_STATE_COLUMNS, "ready": corpus_status["sector"] == "READY"},
-        "dqn_with_marketwide_peer_nlp": {"columns": MARKETWIDE_PEER_NLP_STATE_COLUMNS, "ready": corpus_status["marketwide"] == "READY"},
+    state_specs: dict[str, dict[str, object]] = {
+        "dqn_without_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": None, "ready": True},
+        "dqn_with_sector_peer_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": "sector_sentiment_score", "ready": corpus_status["sector"] == "READY"},
+        "dqn_with_marketwide_peer_nlp": {"columns": UNIFIED_DQN_STATE_COLUMNS, "signal_column": "marketwide_sentiment_score", "ready": corpus_status["marketwide"] == "READY"},
     }
-    state_feature_diagnostics = _peer_state_feature_diagnostics(train_frame, test_frame, state_specs)
+    group_train_frames = {experiment: _with_unified_peer_nlp_signal(train_frame, spec.get("signal_column")) for experiment, spec in state_specs.items()}
+    group_test_frames = {experiment: _with_unified_peer_nlp_signal(test_frame, spec.get("signal_column")) for experiment, spec in state_specs.items()}
+    state_feature_diagnostics = _peer_state_feature_diagnostics(group_train_frames, group_test_frames, state_specs)
     for experiment, spec in state_specs.items():
-        signal_columns = [column for column in spec["columns"] if column in {"sector_sentiment_score", "marketwide_sentiment_score"}]
-        if signal_columns and spec["ready"]:
-            has_signal = any(pd.to_numeric(train_frame[column], errors="coerce").fillna(0).abs().sum() > 1e-12 for column in signal_columns if column in train_frame.columns)
+        signal_column = spec.get("signal_column")
+        if signal_column and spec["ready"]:
+            has_signal = pd.to_numeric(group_train_frames[experiment][UNIFIED_NLP_STATE_COLUMN], errors="coerce").fillna(0).abs().sum() > 1e-12
             if not has_signal:
                 spec["ready"] = False
                 spec["not_ready_reason"] = "selected_dqn_training_window_has_no_nonzero_peer_nlp_signal"
@@ -145,8 +149,9 @@ def run_peer_nlp_ablation_study(
     state_compliance_frames: list[pd.DataFrame] = []
     leakage_frames: list[pd.DataFrame] = []
     for experiment, spec in state_specs.items():
+        group_test = group_test_frames[experiment]
         try:
-            compliance = validate_state_columns(test_frame, spec["columns"], sentiment_required=None)
+            compliance = validate_state_columns(group_test, spec["columns"], sentiment_required=None)
         except ValueError as exc:
             compliance = pd.DataFrame(
                 [{"state_column": "", "present": False, "missing_values": np.nan, "shifted_correctly": False, "leakage_prone": False, "sentiment_column": False, "error": str(exc)}]
@@ -154,7 +159,7 @@ def run_peer_nlp_ablation_study(
             spec["ready"] = False
         compliance["experiment"] = experiment
         state_compliance_frames.append(compliance)
-        leakage_frames.append(leakage_diagnostics(test_frame, spec["columns"], sentiment_is_aligned_to_trade_date=True).assign(experiment=experiment))
+        leakage_frames.append(leakage_diagnostics(group_test, spec["columns"], sentiment_is_aligned_to_trade_date=True).assign(experiment=experiment))
 
     portfolio_curves: list[pd.DataFrame] = []
     drawdown_curves: list[pd.DataFrame] = []
@@ -180,13 +185,15 @@ def run_peer_nlp_ablation_study(
     train_ready = len(train_frame) >= 3 and len(test_frame) >= 2
     for experiment, spec in state_specs.items():
         columns = list(spec["columns"])
+        group_train = group_train_frames[experiment]
+        group_test = group_test_frames[experiment]
         ready = bool(spec["ready"]) and train_ready
         for seed in seeds:
             if not ready:
                 seed_metrics.append(_empty_peer_metrics(experiment, initial_cash, seed))
                 continue
             trained = train_dqn(
-                train_frame,
+                group_train,
                 columns,
                 episodes=episodes,
                 initial_cash=initial_cash,
@@ -204,13 +211,14 @@ def run_peer_nlp_ablation_study(
             training_rewards.append(rewards)
             log = evaluate_agent(
                 trained["agent"],
-                test_frame,
+                group_test,
                 columns,
                 initial_cash=initial_cash,
                 transaction_cost=transaction_cost,
                 experiment=experiment,
                 seed=seed,
                 reward_mode=reward_mode,
+                state_scaler=trained.get("state_scaler"),
             )
             log["official_experiment"] = OFFICIAL_EXPERIMENT
             log["training_period"] = split_info.get("training_period_label", "target_market_learning_window")
@@ -383,14 +391,26 @@ def _high_density_internal_split(high_density_frame: pd.DataFrame, old_split: di
     return train, test, split
 
 
+def _with_unified_peer_nlp_signal(frame: pd.DataFrame, signal_column: object) -> pd.DataFrame:
+    """Return a DQN-ready frame where every peer experiment uses 8 state inputs."""
+
+    output = frame.copy()
+    if isinstance(signal_column, str) and signal_column in output.columns:
+        output[UNIFIED_NLP_STATE_COLUMN] = pd.to_numeric(output[signal_column], errors="coerce").fillna(0.0)
+    else:
+        output[UNIFIED_NLP_STATE_COLUMN] = 0.0
+    return output
+
+
 def _peer_state_feature_diagnostics(
-    train_frame: pd.DataFrame,
-    test_frame: pd.DataFrame,
+    train_frames: dict[str, pd.DataFrame],
+    test_frames: dict[str, pd.DataFrame],
     state_specs: dict[str, dict[str, object]],
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for experiment, spec in state_specs.items():
-        for period, frame in [("train", train_frame), ("test", test_frame)]:
+        source_signal_column = spec.get("signal_column") or ""
+        for period, frame in [("train", train_frames.get(experiment, pd.DataFrame())), ("test", test_frames.get(experiment, pd.DataFrame()))]:
             for column in spec["columns"]:
                 values = pd.to_numeric(frame.get(column, pd.Series(dtype=float)), errors="coerce")
                 rows.append(
@@ -406,7 +426,9 @@ def _peer_state_feature_diagnostics(
                         "std": float(values.std()) if values.notna().sum() > 1 else np.nan,
                         "min": float(values.min()) if values.notna().any() else np.nan,
                         "max": float(values.max()) if values.notna().any() else np.nan,
-                        "is_peer_nlp_signal": column in {"sector_sentiment_score", "marketwide_sentiment_score"},
+                        "source_signal_column": source_signal_column,
+                        "is_peer_nlp_signal": bool(source_signal_column) and column == UNIFIED_NLP_STATE_COLUMN,
+                        "is_unified_nlp_signal": column == UNIFIED_NLP_STATE_COLUMN,
                     }
                 )
     return pd.DataFrame(rows)

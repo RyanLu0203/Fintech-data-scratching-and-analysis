@@ -24,6 +24,8 @@ def test_dashboard_uses_market_impact_checkbox_add_on_copy() -> None:
     assert "基础三组 DQN 对比" in source
     assert "五组 DQN 对比" in source
     assert "Market-Impact Add-on: Five-Group Comparison" in source
+    assert "CORE_EXPERIMENT_METRICS" in source
+    assert "buy-and-hold 只是 benchmark" in source
 
 
 def test_pipeline_summary_names_market_impact_as_add_on() -> None:
