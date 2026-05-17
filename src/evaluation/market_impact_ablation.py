@@ -1,4 +1,4 @@
-"""Six-way DQN ablation for peer sentiment vs market-impact NLP."""
+"""Five-group DQN add-on for peer sentiment plus market-impact NLP."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ from src.nlp.peer_sentiment import (
 )
 from src.rl.train import evaluate_agent, train_dqn
 
-MARKET_IMPACT_EXPERIMENT = "peer_market_impact_nlp"
+MARKET_IMPACT_EXPERIMENT = "peer_sentiment_plus_market_impact"
 SECTOR_SENTIMENT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_sentiment_score"]
 MARKETWIDE_SENTIMENT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["marketwide_sentiment_score"]
 SECTOR_IMPACT_STATE_COLUMNS = WITHOUT_NLP_STATE_COLUMNS + ["sector_impact_score"]
@@ -216,7 +216,11 @@ def run_market_impact_official_experiment(
     negative_threshold: float = MARKET_IMPACT_NEG_THRESHOLD,
     status_callback: Callable[[str, str], None] | None = None,
 ) -> dict[str, object]:
-    """Run baseline peer sentiment, market-impact scoring, then six-way DQN."""
+    """Run peer sentiment baseline, market-impact scoring, then five DQN groups.
+
+    Buy-and-hold is still emitted as a benchmark curve/metric row, but it is
+    not counted as one of the five DQN experiment groups.
+    """
 
     symbol = _normalize_symbol(symbol)
     results_dir = stock_results_dir(symbol)
@@ -917,8 +921,9 @@ def _write_market_impact_report(symbol: str, reports_dir: Path, effect: pd.DataF
             "# Peer Market-Impact NLP Result",
             "",
             f"- Target stock: `{symbol}`",
-            "- Baseline experiment preserved: `peer_sector_sentiment_nlp`.",
-            "- Improved experiment: `peer_market_impact_nlp`.",
+            "- Base experiment preserved: `peer_sector_nlp_transfer`.",
+            "- Add-on experiment: `peer_sentiment_plus_market_impact`.",
+            "- DQN groups: no-NLP, sector sentiment, marketwide sentiment, sector impact, marketwide impact.",
             f"- DQN training window: `{split_info.get('train_start', '')}` to `{split_info.get('train_end', '')}`",
             f"- DQN testing window: `{split_info.get('test_start', '')}` to `{split_info.get('test_end', '')}`",
             f"- Best strategy: `{row.get('best_strategy', 'N/A')}`",
@@ -927,7 +932,7 @@ def _write_market_impact_report(symbol: str, reports_dir: Path, effect: pd.DataF
             f"- Marketwide impact label: `{row.get('marketwide_impact_label', 'Inconclusive')}`",
             f"- Reliability status: `{row.get('reliability_status', 'UNKNOWN')}`",
             "",
-            "Market-impact NLP is trained on peer news labelled by peer stocks' post-news future returns. The target stock is held out from NLP training labels.",
+            "Market-impact NLP is trained on peer news labelled by peer stocks' post-news future returns. The target stock is held out from NLP training labels. Buy-and-hold is a benchmark, not one of the five DQN groups.",
         ]
     )
     (reports_dir / "market_impact_report_section.md").write_text(text, encoding="utf-8")
@@ -943,7 +948,7 @@ def _market_impact_discussion(summary: pd.DataFrame, diagnostics: pd.DataFrame) 
         [
             "# Market-Impact Cross-Stock Discussion",
             "",
-            "This cross-stock view preserves the peer-sentiment baseline and adds peer market-impact NLP.",
+            "This cross-stock view preserves the peer-sentiment baseline and adds two peer market-impact DQN groups.",
             f"- Targets summarized: {len(summary)}",
             f"- Best NLP type counts: impact={impact_best}, sentiment={sentiment_best}, none={none_best}",
             "",

@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-news", action="store_true")
     parser.add_argument("--dashboard", action="store_true")
     parser.add_argument("--peer-dashboard", action="store_true", help="Launch the new clean peer sentiment + market-impact dashboard.")
-    parser.add_argument("--run-market-impact-nlp", action="store_true", help="Run the improved peer market-impact NLP experiment.")
+    parser.add_argument("--run-market-impact-nlp", action="store_true", help="Add the two peer market-impact NLP DQN groups to the base peer sentiment experiment.")
     parser.add_argument("--market-impact-horizon-days", type=int, default=3)
     parser.add_argument("--market-impact-pos-threshold", type=float, default=0.015)
     parser.add_argument("--market-impact-neg-threshold", type=float, default=-0.015)
@@ -383,7 +383,7 @@ def run_pipeline_for_symbol(
             if use_sqlite:
                 _persist_peer_outputs_to_sqlite(symbol, peer_outputs, sqlite_path)
         if run_market_impact_nlp:
-            emit("market_impact_nlp", f"Running peer market-impact NLP experiment for {symbol}.")
+            emit("market_impact_nlp", f"Running peer market-impact NLP add-on groups for {symbol}.")
             market_impact_outputs = run_market_impact_official_experiment(
                 input_csv=input_csv,
                 symbol=symbol,
@@ -520,12 +520,14 @@ def run_pipeline_for_symbol(
         "high_density_ablation_metrics_csv": str(results_dir / "high_density_ablation_metrics.csv"),
         "high_density_portfolio_curves_csv": str(results_dir / "high_density_portfolio_curves.csv"),
         "official_current_experiment": (
-            "peer_market_impact_nlp"
+            "peer_sentiment_plus_market_impact"
             if run_market_impact_nlp
             else "peer_sector_nlp_transfer"
             if run_peer_nlp_experiment
             else "legacy_stock_level_nlp"
         ),
+        "market_impact_add_on": bool(run_market_impact_nlp),
+        "dqn_group_count": 5 if run_market_impact_nlp else 3 if run_peer_nlp_experiment else 2,
         "peer_nlp_daily_sentiment_csv": str(results_dir / "peer_nlp_daily_sentiment.csv"),
         "peer_nlp_ablation_metrics_csv": str(results_dir / "peer_nlp_ablation_metrics.csv"),
         "peer_nlp_portfolio_curves_csv": str(results_dir / "peer_nlp_portfolio_curves.csv"),
