@@ -104,6 +104,10 @@ def _collect_paths(symbol: str) -> list[Path]:
         "model_upgrade_summary.csv",
         "seed_level_metrics.csv",
         "action_distribution_diagnostics.csv",
+        "env_dynamics_diagnostics.csv",
+        "exploration_diagnostics.csv",
+        "portfolio_curves.csv",
+        "q_value_diagnostics.csv",
         "reward_variant_comparison.csv",
         "state_feature_diagnostics.csv",
         "upgrade_run_log.md",
@@ -135,6 +139,7 @@ def _summary_markdown(symbol: str, company: str, timestamp: str, paths: list[Pat
     sections.extend(_table_section("Model Upgrade Summary", OUTPUTS_ROOT / "model_upgrade" / "model_upgrade_summary.csv", limit=20))
     sections.extend(_table_section("Model Upgrade Seed-Level Metrics", OUTPUTS_ROOT / "model_upgrade" / "seed_level_metrics.csv", limit=20))
     sections.extend(_table_section("Model Upgrade Action Diagnostics", OUTPUTS_ROOT / "model_upgrade" / "action_distribution_diagnostics.csv", limit=20))
+    sections.extend(_table_section("Model Upgrade Q-Value Diagnostics", OUTPUTS_ROOT / "model_upgrade" / "q_value_diagnostics.csv", limit=20))
     sections.extend(_table_section("Reward Variant Comparison", OUTPUTS_ROOT / "model_upgrade" / "reward_variant_comparison.csv", limit=20))
     sections.extend(_table_section("Information Density Split", stock_reports_dir(symbol) / "information_density_split.csv", limit=5))
     sections.extend(_derived_diagnostics(symbol))
@@ -190,6 +195,13 @@ def _derived_diagnostics(symbol: str) -> list[str]:
         counts["sell_ratio"] = counts["sell_count"] / denominator
         grouped = counts[["run_mode", "model_variant", "experiment", "hold_ratio", "buy_ratio", "sell_ratio"]]
         lines.extend(["### Model Upgrade Mean Action Ratios", "", grouped.to_markdown(index=False), ""])
+    q_values = _read_csv(OUTPUTS_ROOT / "model_upgrade" / "q_value_diagnostics.csv")
+    if not q_values.empty and {"run_mode", "model_variant", "experiment", "selected_q_value", "q_value_margin"}.issubset(q_values.columns):
+        for column in ["selected_q_value", "q_value_margin"]:
+            q_values[column] = pd.to_numeric(q_values[column], errors="coerce")
+        q_grouped = q_values.groupby(["run_mode", "model_variant", "experiment"], dropna=False)[["selected_q_value", "q_value_margin"]].agg(["mean", "std"]).reset_index()
+        q_grouped.columns = ["_".join(col).strip("_") for col in q_grouped.columns]
+        lines.extend(["### Model Upgrade Q-Value Distribution", "", q_grouped.to_markdown(index=False), ""])
     daily = _read_csv(stock_results_dir(symbol) / "peer_market_impact_daily_signal.csv")
     comparisons = []
     for left, right, label in [

@@ -68,6 +68,20 @@ def test_target_position_maps_buy_sell_hold_labels() -> None:
     assert info["mapped_action_label"] == "Sell"
 
 
+def test_target_position_uses_trade_value_formula_without_integer_rounding() -> None:
+    env = FinancialTradingEnv(_market_frame(), STATE_COLUMNS, initial_cash=1_000_000, transaction_cost=0.001, action_mode="target_position")
+    env.reset()
+    _state, _reward, _done, _info = env.step(1)
+    log = env.trading_log().iloc[-1]
+    expected_buy_value = 0.25 * 1_000_000
+    expected_cost = expected_buy_value * 0.001
+    assert np.isclose(log["trade_value"], expected_buy_value)
+    assert np.isclose(log["shares_after"], expected_buy_value / log["price"])
+    assert np.isclose(log["cash_after"], 1_000_000 - expected_buy_value - expected_cost)
+    assert np.isclose(log["portfolio_after_trade"], log["cash_after"] + log["shares_after"] * log["price"])
+    assert "portfolio_next" in log.index
+
+
 def test_flat_penalty_is_exposure_based_and_training_only() -> None:
     data = _market_frame()
     training_env = FinancialTradingEnv(

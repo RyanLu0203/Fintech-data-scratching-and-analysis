@@ -56,6 +56,9 @@ ENV_DYNAMICS_COLUMNS = [
     "raw_action_id",
     "action_mode",
     "target_exposure",
+    "current_stock_value",
+    "target_stock_value",
+    "trade_value",
     "current_exposure_before",
     "current_exposure_after",
     "mapped_action_label",
@@ -64,6 +67,8 @@ ENV_DYNAMICS_COLUMNS = [
     "cash_before",
     "shares_before",
     "portfolio_before",
+    "portfolio_after_trade",
+    "portfolio_next",
     "cash_after",
     "shares_after",
     "portfolio_after",
@@ -71,6 +76,24 @@ ENV_DYNAMICS_COLUMNS = [
     "cash_ratio_after",
     "reward",
     "transaction_cost",
+]
+Q_VALUE_COLUMNS = [
+    "run_id",
+    "run_mode",
+    "period",
+    "episode",
+    "step",
+    "state_feature_mode",
+    "action_mode",
+    "raw_action_id",
+    "mapped_action_label",
+    "q_hold_or_action0",
+    "q_action1",
+    "q_action2",
+    "q_action3",
+    "q_action4",
+    "selected_q_value",
+    "q_value_margin",
 ]
 RUN_METADATA_COLUMNS = ["run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "reward_variant", "state_feature_mode"]
 
@@ -103,6 +126,8 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
         f"- timestamp: {timestamp}",
         f"- official_baseline_action_mode: discrete_trade",
         f"- model_upgrade_default_action_mode: target_position",
+        "- reward_timing_convention: post_trade_to_future_value; one-day reward uses (portfolio_next - portfolio_after_trade) / portfolio_after_trade, preserving the existing environment convention.",
+        "- quick_test_interpretation: code-path and environment-dynamics validation only; final_equity, Sharpe ratio, and max_drawdown are not model performance evidence.",
         "",
     ]
     input_csv = _resolve_target_input_csv(config)
@@ -167,6 +192,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
     env_dynamics_rows: list[dict[str, object]] = []
     exploration_rows: list[dict[str, object]] = []
     portfolio_rows: list[dict[str, object]] = []
+    q_value_rows: list[dict[str, object]] = []
     for model_variant in model_variants:
         for reward_variant in reward_variants:
             for state_mode in state_modes:
@@ -246,6 +272,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
                                 reward_variant=reward_variant,
                                 state_scaler=trained.get("state_scaler"),
                                 action_mode=action_mode,
+                                log_q_values=True,
                             )
                             metrics = _add_behavior_metrics(_metrics_from_log(experiment, log, config.initial_cash, seed), log)
                             counts = _action_counts(log)
@@ -277,6 +304,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
                             env_dynamics_rows.extend(_env_dynamics_rows(log, row_metadata))
                             exploration_rows.extend(_exploration_rows(trained.get("exploration_diagnostics"), row_metadata))
                             portfolio_rows.extend(_portfolio_rows(log, row_metadata))
+                            q_value_rows.extend(_q_value_rows(log, row_metadata))
                             log_lines.append(
                                 f"- {run_id}: final_equity={metrics.get('final_equity')}, "
                                 f"trades={metrics.get('number_of_trades')}, avg_exposure={average_exposure}, "
@@ -292,6 +320,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
         env_dynamics_df = env_dynamics_df[[column for column in env_order if column in env_dynamics_df.columns] + [column for column in env_dynamics_df.columns if column not in env_order]]
     exploration_df = pd.DataFrame(exploration_rows)
     portfolio_df = pd.DataFrame(portfolio_rows)
+    q_value_df = pd.DataFrame(q_value_rows)
     summary_df = _model_summary(seed_df)
     reward_df = _reward_comparison(seed_df)
     _append_acceptance_status(log_lines, seed_df, action_df, portfolio_df, run_mode)
@@ -302,6 +331,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
         "env_dynamics": MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv",
         "exploration": MODEL_UPGRADE_DIR / "exploration_diagnostics.csv",
         "portfolio_curves": MODEL_UPGRADE_DIR / "portfolio_curves.csv",
+        "q_values": MODEL_UPGRADE_DIR / "q_value_diagnostics.csv",
         "reward_comparison": MODEL_UPGRADE_DIR / "reward_variant_comparison.csv",
         "state_features": MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv",
         "log": MODEL_UPGRADE_DIR / "upgrade_run_log.md",
@@ -312,6 +342,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
     _write_run_mode_output(paths["env_dynamics"], env_dynamics_df, config.target_symbol, run_mode)
     _write_run_mode_output(paths["exploration"], exploration_df, config.target_symbol, run_mode)
     _write_run_mode_output(paths["portfolio_curves"], portfolio_df, config.target_symbol, run_mode)
+    _write_run_mode_output(paths["q_values"], q_value_df, config.target_symbol, run_mode)
     _write_run_mode_output(paths["reward_comparison"], reward_df, config.target_symbol, run_mode)
     _write_run_mode_output(paths["state_features"], state_diag_df, config.target_symbol, run_mode)
     paths["log"].write_text("\n".join(log_lines) + "\n", encoding="utf-8")
@@ -560,6 +591,9 @@ def _env_dynamics_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[d
                 "date": item.get("date"),
                 "raw_action_id": item.get("raw_action_id"),
                 "target_exposure": item.get("target_exposure"),
+                "current_stock_value": item.get("current_stock_value"),
+                "target_stock_value": item.get("target_stock_value"),
+                "trade_value": item.get("trade_value"),
                 "current_exposure_before": item.get("current_exposure_before"),
                 "current_exposure_after": item.get("current_exposure_after"),
                 "mapped_action_label": item.get("mapped_action_label", item.get("action")),
@@ -568,6 +602,8 @@ def _env_dynamics_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[d
                 "cash_before": item.get("cash_before"),
                 "shares_before": item.get("shares_before"),
                 "portfolio_before": item.get("portfolio_before"),
+                "portfolio_after_trade": item.get("portfolio_after_trade", item.get("portfolio_after")),
+                "portfolio_next": item.get("portfolio_next", item.get("portfolio_value")),
                 "cash_after": item.get("cash_after"),
                 "shares_after": item.get("shares_after"),
                 "portfolio_after": item.get("portfolio_after"),
@@ -577,6 +613,30 @@ def _env_dynamics_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[d
                 "transaction_cost": item.get("transaction_cost"),
             }
         )
+        rows.append(row)
+    return rows
+
+
+def _q_value_rows(log: pd.DataFrame, metadata: dict[str, object]) -> list[dict[str, object]]:
+    if log.empty or "selected_q_value" not in log.columns:
+        return []
+    rows: list[dict[str, object]] = []
+    for _, item in log.iterrows():
+        row = {
+            **metadata,
+            "period": "test",
+            "episode": int(item.get("episode", 0) or 0),
+            "step": int(item.get("step", 0) or 0),
+            "raw_action_id": item.get("raw_action_id"),
+            "mapped_action_label": item.get("mapped_action_label", item.get("action")),
+            "q_hold_or_action0": item.get("q_hold_or_action0"),
+            "q_action1": item.get("q_action1"),
+            "q_action2": item.get("q_action2"),
+            "q_action3": item.get("q_action3"),
+            "q_action4": item.get("q_action4"),
+            "selected_q_value": item.get("selected_q_value"),
+            "q_value_margin": item.get("q_value_margin"),
+        }
         rows.append(row)
     return rows
 
@@ -684,6 +744,7 @@ def _write_empty_outputs(log_lines: list[str]) -> None:
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv", index=False)
+    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "q_value_diagnostics.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv", index=False)
     pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv", index=False)
     (MODEL_UPGRADE_DIR / "upgrade_run_log.md").write_text("\n".join(log_lines) + "\n", encoding="utf-8")

@@ -2255,6 +2255,7 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
     env_dynamics = safe_read_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv")
     exploration = safe_read_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv")
     portfolio = safe_read_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv")
+    q_values = safe_read_csv(MODEL_UPGRADE_DIR / "q_value_diagnostics.csv")
     reward_compare = safe_read_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv")
     state_features = safe_read_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv")
 
@@ -2275,6 +2276,8 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
         exploration = exploration[exploration["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
     if "target_symbol" in portfolio.columns:
         portfolio = portfolio[portfolio["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+    if "target_symbol" in q_values.columns:
+        q_values = q_values[q_values["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
     if "target_symbol" in reward_compare.columns:
         reward_compare = reward_compare[reward_compare["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
 
@@ -2325,6 +2328,7 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
     filtered_env = _filter(env_dynamics)
     filtered_exploration = _filter(exploration)
     filtered_portfolio = _filter(portfolio)
+    filtered_q_values = _filter(q_values)
 
     st.markdown("#### Seed-level final equity")
     _render_box_or_table(filtered_seed, metric="final_equity")
@@ -2395,8 +2399,26 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
         st.dataframe(filtered_exploration.head(300), use_container_width=True, hide_index=True)
 
     if not filtered_env.empty:
+        if "reward" in filtered_env.columns:
+            reward_frame = filtered_env.copy()
+            reward_frame["reward"] = pd.to_numeric(reward_frame["reward"], errors="coerce")
+            reward_summary = reward_frame.groupby("experiment")["reward"].agg(["count", "mean", "std", "min", "max"]).reset_index()
+            reward_summary["experiment"] = reward_summary["experiment"].astype(str).map(_display_experiment_name).fillna(reward_summary["experiment"].astype(str))
+            st.markdown("#### Reward distribution")
+            st.dataframe(reward_summary, use_container_width=True, hide_index=True)
         st.markdown("#### Environment dynamics")
         st.dataframe(filtered_env.head(500), use_container_width=True, hide_index=True)
+
+    if not filtered_q_values.empty:
+        st.markdown("#### Q-value diagnostics")
+        q_plot = filtered_q_values.copy()
+        q_plot["selected_q_value"] = pd.to_numeric(q_plot.get("selected_q_value"), errors="coerce")
+        q_plot["q_value_margin"] = pd.to_numeric(q_plot.get("q_value_margin"), errors="coerce")
+        q_summary = q_plot.groupby("experiment")[["selected_q_value", "q_value_margin"]].agg(["mean", "std", "min", "max"])
+        q_summary.columns = ["_".join(col).strip("_") for col in q_summary.columns]
+        q_summary = q_summary.reset_index()
+        q_summary["experiment"] = q_summary["experiment"].astype(str).map(_display_experiment_name).fillna(q_summary["experiment"].astype(str))
+        st.dataframe(q_summary, use_container_width=True, hide_index=True)
 
     st.markdown("#### model_upgrade_summary.csv")
     st.dataframe(filtered_summary, use_container_width=True, hide_index=True)

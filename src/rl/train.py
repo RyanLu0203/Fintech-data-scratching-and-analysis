@@ -273,6 +273,7 @@ def evaluate_agent(
     trade_exploration_bonus: float | None = None,
     trade_exploration_bonus_episode_ratio: float | None = None,
     action_mode: str | None = None,
+    log_q_values: bool = False,
 ) -> pd.DataFrame:
     seed_everything(seed)
     active_reward_variant = reward_variant or agent.config.reward_variant
@@ -301,8 +302,39 @@ def evaluate_agent(
     scaler = state_scaler or build_state_scaler(data, state_columns, initial_cash)
     state = normalize_state(env.reset(), state_columns, scaler)
     done = False
+    q_rows: list[dict[str, float | int]] = []
+    step_index = 0
     while not done:
-        action = agent.act(state, explore=False)
+        if log_q_values:
+            with torch.no_grad():
+                q_values_array = agent.online(torch.tensor(state, dtype=torch.float32).unsqueeze(0)).squeeze(0).detach().cpu().numpy()
+            action = int(np.argmax(q_values_array))
+            selected_q = float(q_values_array[action])
+            if len(q_values_array) > 1:
+                q_margin = float(selected_q - np.partition(q_values_array, -2)[-2])
+            else:
+                q_margin = 0.0
+        else:
+            q_values_array = np.array([], dtype=float)
+            selected_q = np.nan
+            q_margin = np.nan
+            action = agent.act(state, explore=False)
         next_state_raw, _reward, done, _info = env.step(action)
+        if log_q_values:
+            q_row: dict[str, float | int] = {
+                "step": int(step_index),
+                "raw_action_id": int(action),
+                "selected_q_value": selected_q,
+                "q_value_margin": q_margin,
+            }
+            for index in range(5):
+                column = "q_hold_or_action0" if index == 0 else f"q_action{index}"
+                q_row[column] = float(q_values_array[index]) if index < len(q_values_array) else np.nan
+            q_rows.append(q_row)
         state = normalize_state(next_state_raw, state_columns, scaler)
-    return env.trading_log(episode=0, experiment=experiment, seed=seed)
+        step_index += 1
+    log = env.trading_log(episode=0, experiment=experiment, seed=seed)
+    if log_q_values and q_rows and not log.empty:
+        q_frame = pd.DataFrame(q_rows)
+        log = log.merge(q_frame, on=["step", "raw_action_id"], how="left")
+    return log

@@ -72,3 +72,4 @@ def test_dashboard_has_model_upgrade_missing_file_fallback() -> None:
     assert "action_distribution_diagnostics.csv" in source
     assert "env_dynamics_diagnostics.csv" in source
     assert "exploration_diagnostics.csv" in source
+    assert "q_value_diagnostics.csv" in source
