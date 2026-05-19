@@ -22,6 +22,7 @@ from src.evaluation.market_impact_ablation import (
     _with_unified_nlp_signal,
     add_market_impact_trading_features,
 )
+from src.evaluation.model_upgrade_diagnostics import generate_model_upgrade_diagnostic_reports
 from src.evaluation.peer_nlp_ablation import _add_behavior_metrics, _safe_read_csv, peer_train_test_split
 from src.rl.dqn_agent import DQNConfig
 from src.rl.train import evaluate_agent, train_dqn
@@ -209,6 +210,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
                         reward_variant=reward_variant,
                         state_feature_mode=state_mode,
                     )
+                    metadata_base["target_company"] = config.target_company
                     for experiment, frames in prepared.items():
                         _append_state_diagnostics(
                             state_diag_rows,
@@ -278,7 +280,7 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
                             counts = _action_counts(log)
                             average_exposure = _average_exposure(log)
                             unique_portfolio_values = _unique_portfolio_values(log)
-                            row_metadata = {**metadata_base, "run_id": run_id, "target_symbol": config.target_symbol, "experiment": experiment, "seed": seed}
+                            row_metadata = {**metadata_base, "run_id": run_id, "target_symbol": config.target_symbol, "target_company": config.target_company, "experiment": experiment, "seed": seed}
                             seed_rows.append(
                                 {
                                     **row_metadata,
@@ -321,8 +323,6 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
     exploration_df = pd.DataFrame(exploration_rows)
     portfolio_df = pd.DataFrame(portfolio_rows)
     q_value_df = pd.DataFrame(q_value_rows)
-    summary_df = _model_summary(seed_df)
-    reward_df = _reward_comparison(seed_df)
     _append_acceptance_status(log_lines, seed_df, action_df, portfolio_df, run_mode)
     paths = {
         "seed_metrics": MODEL_UPGRADE_DIR / "seed_level_metrics.csv",
@@ -336,16 +336,19 @@ def run_model_upgrade_grid(config: ModelUpgradeRunConfig) -> dict[str, Path]:
         "state_features": MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv",
         "log": MODEL_UPGRADE_DIR / "upgrade_run_log.md",
     }
-    _write_run_mode_output(paths["seed_metrics"], seed_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["summary"], summary_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["actions"], action_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["env_dynamics"], env_dynamics_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["exploration"], exploration_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["portfolio_curves"], portfolio_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["q_values"], q_value_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["reward_comparison"], reward_df, config.target_symbol, run_mode)
-    _write_run_mode_output(paths["state_features"], state_diag_df, config.target_symbol, run_mode)
+    _write_run_id_output(paths["seed_metrics"], seed_df)
+    _write_run_id_output(paths["actions"], action_df)
+    _write_run_id_output(paths["env_dynamics"], env_dynamics_df)
+    _write_run_id_output(paths["exploration"], exploration_df)
+    _write_run_id_output(paths["portfolio_curves"], portfolio_df)
+    _write_run_id_output(paths["q_values"], q_value_df)
+    _write_run_id_output(paths["state_features"], state_diag_df)
+    all_seed_df = _safe_read_csv(paths["seed_metrics"])
+    _model_summary(all_seed_df).to_csv(paths["summary"], index=False, encoding="utf-8-sig")
+    _reward_comparison(all_seed_df).to_csv(paths["reward_comparison"], index=False, encoding="utf-8-sig")
     paths["log"].write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    report_paths = generate_model_upgrade_diagnostic_reports()
+    paths.update({f"diagnostic_{name}": path for name, path in report_paths.items()})
     return paths
 
 
@@ -704,7 +707,10 @@ def _append_acceptance_status(
 def _model_summary(seed_df: pd.DataFrame) -> pd.DataFrame:
     if seed_df.empty:
         return pd.DataFrame()
-    grouped = seed_df.groupby(["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "reward_variant", "state_feature_mode"], dropna=False)
+    group_cols = ["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "reward_variant", "state_feature_mode"]
+    if "target_company" in seed_df.columns:
+        group_cols.insert(1, "target_company")
+    grouped = seed_df.groupby(group_cols, dropna=False)
     return grouped.agg(
         seed_count=("seed", "nunique"),
         mean_final_equity=("final_equity", "mean"),
@@ -725,7 +731,10 @@ def _model_summary(seed_df: pd.DataFrame) -> pd.DataFrame:
 def _reward_comparison(seed_df: pd.DataFrame) -> pd.DataFrame:
     if seed_df.empty:
         return pd.DataFrame()
-    grouped = seed_df.groupby(["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "state_feature_mode", "reward_variant"], dropna=False)
+    group_cols = ["target_symbol", "experiment", "run_mode", "episodes", "max_seeds", "timestamp", "action_mode", "model_variant", "state_feature_mode", "reward_variant"]
+    if "target_company" in seed_df.columns:
+        group_cols.insert(1, "target_company")
+    grouped = seed_df.groupby(group_cols, dropna=False)
     return grouped.agg(
         seed_count=("seed", "nunique"),
         mean_final_equity=("final_equity", "mean"),
@@ -738,19 +747,10 @@ def _reward_comparison(seed_df: pd.DataFrame) -> pd.DataFrame:
 
 def _write_empty_outputs(log_lines: list[str]) -> None:
     MODEL_UPGRADE_DIR.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "seed_level_metrics.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "model_upgrade_summary.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "q_value_diagnostics.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv", index=False)
-    pd.DataFrame().to_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv", index=False)
     (MODEL_UPGRADE_DIR / "upgrade_run_log.md").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
 
-def _write_run_mode_output(path: Path, frame: pd.DataFrame, target_symbol: str, run_mode: str) -> None:
+def _write_run_id_output(path: Path, frame: pd.DataFrame) -> None:
     if path.exists():
         try:
             previous = pd.read_csv(path)
@@ -758,11 +758,8 @@ def _write_run_mode_output(path: Path, frame: pd.DataFrame, target_symbol: str, 
             previous = pd.DataFrame()
     else:
         previous = pd.DataFrame()
-    if not previous.empty and {"target_symbol", "run_mode"}.issubset(previous.columns):
-        keep = ~(
-            previous["target_symbol"].astype(str).str.zfill(6).eq(str(target_symbol).zfill(6))
-            & previous["run_mode"].astype(str).eq(str(run_mode))
-        )
-        previous = previous[keep].copy()
+    if not previous.empty and not frame.empty and "run_id" in previous.columns and "run_id" in frame.columns:
+        new_run_ids = set(frame["run_id"].dropna().astype(str).tolist())
+        previous = previous[~previous["run_id"].astype(str).isin(new_run_ids)].copy()
     output = pd.concat([previous, frame], ignore_index=True, sort=False) if not previous.empty else frame
     output.to_csv(path, index=False, encoding="utf-8-sig")

@@ -23,6 +23,8 @@ def normalize_symbol_for_path(symbol: str) -> str:
     """Return a stable stock-code folder name such as ``000625``."""
 
     text = str(symbol or "").strip().upper()
+    if re.fullmatch(r"\d{1,6}", text):
+        return text.zfill(6)
     match = re.search(r"\d{6}", text)
     return match.group(0) if match else text.replace(".", "_").replace("/", "_")
 

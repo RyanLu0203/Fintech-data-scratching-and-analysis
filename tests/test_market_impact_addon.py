@@ -27,9 +27,10 @@ def test_dashboard_uses_marketwide_checkbox_without_label_tuning() -> None:
     assert '"Market-impact label settings"' not in source
     assert "sector-only 三组 DQN 对比" in source
     assert "五组 DQN 对比" in source
-    assert "Official Sector Sentiment / Impact DQN Comparison" in source
+    assert "Latest Model-Upgrade Sentiment / Impact Comparison" in source
+    assert "Official Sector Sentiment / Impact DQN Comparison" not in source
     assert "CORE_EXPERIMENT_METRICS" in source
-    assert "buy-and-hold 只是 benchmark" in source
+    assert "Buy-and-hold benchmark is shown only when a compatible model-upgrade benchmark curve is available." in source
     assert "run_market_impact_nlp = True" in source
     assert "include_marketwide_peer=add_marketwide_peer_groups" in source
     assert "density_from_peer_daily" in source

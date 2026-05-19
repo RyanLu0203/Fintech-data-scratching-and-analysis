@@ -67,9 +67,28 @@ def test_model_upgrade_summary_schema() -> None:
 def test_dashboard_has_model_upgrade_missing_file_fallback() -> None:
     source = Path("src/dashboard/streamlit_app.py").read_text(encoding="utf-8")
     assert "Model Upgrade Diagnostics" in source
-    assert "No model upgrade results found. Run scripts/run_model_upgrade_grid.py first." in source
+    assert "No model upgrade diagnostics found in outputs/model_upgrade or per-stock output folders." in source
+    assert "No latest model-upgrade results found for selected target_symbol. Run:" in source
+    assert "model-upgrade target_symbol" in source
+    assert "Trade-by-Trade DQN Behavior" in source
+    assert "Latest Model-Upgrade DQN Groups" in source
+    assert "Latest Model-Upgrade Sentiment / Impact Comparison" in source
     assert "model_upgrade_summary.csv" in source
     assert "action_distribution_diagnostics.csv" in source
     assert "env_dynamics_diagnostics.csv" in source
     assert "exploration_diagnostics.csv" in source
     assert "q_value_diagnostics.csv" in source
+    assert '"number_of_trades", "win_rate"' in source
+    assert '"mean_win_rate": "win_rate"' in source
+    assert "def _render_plot(fig: go.Figure, key: str | None = None)" in source
+    assert "st.plotly_chart(fig, width=\"stretch\", config=PLOT_CONFIG, key=chart_key)" in source
+    assert "st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG, key=chart_key)" in source
+    assert "_reset_plotly_key_counter()" in source
+
+
+def test_upgrade_reason_readme_exists() -> None:
+    readme = Path("outputs/model_upgrade/UPGRADE_REASON_README.md")
+    assert readme.exists()
+    text = readme.read_text(encoding="utf-8")
+    assert "crawler logic did not change" in text.lower()
+    assert "target_position" in text

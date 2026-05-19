@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import html
 import importlib
 import inspect
@@ -17,6 +18,7 @@ PROJECT_ROOT_FOR_IMPORTS = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT_FOR_IMPORTS) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT_FOR_IMPORTS))
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -29,6 +31,7 @@ from src.evaluation.cross_stock import build_cross_stock_summary
 from src.evaluation.feasibility_audit import run_feasibility_audit
 from src.evaluation.information_density import generate_information_density_outputs
 from src.evaluation.market_impact_ablation import build_market_impact_cross_stock_summary
+from src.evaluation.model_upgrade_diagnostics import MODEL_UPGRADE_FILENAMES, discover_model_upgrade_diagnostics
 from src.evaluation.peer_nlp_ablation import build_peer_nlp_cross_stock_summary, write_peer_nlp_integrity_report
 from src.evaluation.sector_peer_bootstrap import ensure_sector_peer_data
 from src.features.money_flow import compute_daily_net_flow
@@ -93,6 +96,7 @@ PLOT_CONFIG = {
     "doubleClick": False,
     "responsive": True,
 }
+_PLOTLY_KEY_COUNTS: dict[str, int] = {}
 OFFICIAL_STOCK_RESULT_FILES = [
     "peer_nlp_daily_sentiment.csv",
     "peer_nlp_item_sentiment.csv",
@@ -262,8 +266,31 @@ def _base_layout(title: str | None = None, height: int = 320) -> dict[str, objec
     }
 
 
-def _render_plot(fig: go.Figure) -> None:
-    st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
+def _reset_plotly_key_counter() -> None:
+    _PLOTLY_KEY_COUNTS.clear()
+
+
+def _render_plot(fig: go.Figure, key: str | None = None) -> None:
+    chart_key = key or _auto_plotly_key(fig)
+    try:
+        st.plotly_chart(fig, width="stretch", config=PLOT_CONFIG, key=chart_key)
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG, key=chart_key)
+
+
+def _auto_plotly_key(fig: go.Figure) -> str:
+    caller = inspect.stack()[2]
+    title = ""
+    try:
+        title = str(fig.layout.title.text or "")
+    except Exception:
+        title = ""
+    trace_names = "|".join(str(getattr(trace, "name", "") or "") for trace in fig.data)
+    raw = f"{caller.function}:{caller.lineno}:{title}:{trace_names}"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    count = _PLOTLY_KEY_COUNTS.get(digest, 0) + 1
+    _PLOTLY_KEY_COUNTS[digest] = count
+    return f"plotly_{digest}_{count}"
 
 
 def _display_experiment_name(experiment: object) -> str:
@@ -282,6 +309,183 @@ def _official_metric_table(metrics: pd.DataFrame) -> pd.DataFrame:
         display.insert(0, "strategy_label", display["experiment"].map(_display_experiment_name).fillna(display["experiment"].astype(str)))
     columns = [col for col in ["strategy_label", "experiment", "seed_count", *CORE_EXPERIMENT_METRICS] if col in display.columns]
     return display[columns] if columns else display
+
+
+def _target_company_command(symbol: str, bundle: dict[str, object]) -> str:
+    company = str(bundle.get("company_name", "") or "").strip()
+    if not company:
+        company = normalize_symbol_for_path(symbol)
+    return (
+        "No latest model-upgrade results found for selected target_symbol. Run:\n"
+        f"python scripts/run_model_upgrade_grid.py --target-symbol {normalize_symbol_for_path(symbol)} "
+        f"--target-company {company} --medium-test"
+    )
+
+
+def _target_model_upgrade_frames(symbol: str) -> tuple[object, dict[str, pd.DataFrame]]:
+    bundle = discover_model_upgrade_diagnostics()
+    code = normalize_symbol_for_path(symbol)
+
+    def target_filter(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "target_symbol" not in frame.columns:
+            return pd.DataFrame()
+        out = frame.copy()
+        return out[out["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
+
+    frames = {filename: target_filter(bundle.get(filename)) for filename in MODEL_UPGRADE_FILENAMES}
+    return bundle, frames
+
+
+def _has_model_upgrade_rows(frames: dict[str, pd.DataFrame]) -> bool:
+    for filename in [
+        "model_upgrade_summary.csv",
+        "seed_level_metrics.csv",
+        "portfolio_curves.csv",
+        "action_distribution_diagnostics.csv",
+        "env_dynamics_diagnostics.csv",
+    ]:
+        if not frames.get(filename, pd.DataFrame()).empty:
+            return True
+    return False
+
+
+def _upgrade_filter_controls(frame: pd.DataFrame, prefix: str, *, include_experiment: bool = True) -> dict[str, str]:
+    if frame.empty:
+        return {}
+    columns = st.columns(4)
+    filters: dict[str, str] = {}
+    controls = [
+        ("run_mode", ["medium_test", "quick_test", "full_grid"]),
+        ("model_variant", None),
+        ("reward_variant", None),
+        ("state_feature_mode", None),
+        ("action_mode", None),
+        ("seed", ["all"]),
+    ]
+    if include_experiment:
+        controls.append(("experiment", ["all"]))
+    for index, (column, preferred) in enumerate(controls):
+        if column not in frame.columns:
+            continue
+        options = _diagnostic_options(frame, column, preferred or [])
+        if preferred and "all" in preferred:
+            options = ["all"] + [item for item in options if item != "all"]
+        if not options:
+            continue
+        filters[column] = columns[index % len(columns)].selectbox(
+            column,
+            options,
+            index=0,
+            key=f"{prefix}_{column}",
+        )
+    return filters
+
+
+def _apply_upgrade_filters(frame: pd.DataFrame, filters: dict[str, str]) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    for column, value in filters.items():
+        if not value or value == "all" or column not in out.columns:
+            continue
+        out = out[out[column].astype(str) == str(value)]
+    return out
+
+
+def _upgrade_metric_table(seed_metrics: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
+    metric_cols = ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades", "win_rate"]
+    if not seed_metrics.empty and "experiment" in seed_metrics.columns:
+        table = seed_metrics.copy()
+        for column in metric_cols:
+            if column in table.columns:
+                table[column] = pd.to_numeric(table[column], errors="coerce")
+        agg_cols = [column for column in metric_cols if column in table.columns]
+        grouped = table.groupby("experiment", as_index=False)[agg_cols].mean()
+        grouped.insert(1, "seed_count", table.groupby("experiment")["seed"].nunique().reindex(grouped["experiment"]).to_numpy() if "seed" in table.columns else len(table))
+        grouped.insert(0, "strategy_label", grouped["experiment"].map(_display_experiment_name).fillna(grouped["experiment"].astype(str)))
+        return grouped
+    if not summary.empty and "experiment" in summary.columns:
+        table = summary.copy()
+        rename_map = {
+            "mean_final_equity": "final_equity",
+            "mean_cumulative_return": "cumulative_return",
+            "mean_sharpe_ratio": "sharpe_ratio",
+            "mean_max_drawdown": "max_drawdown",
+            "mean_number_of_trades": "number_of_trades",
+            "mean_win_rate": "win_rate",
+        }
+        table = table.rename(columns=rename_map)
+        cols = [col for col in ["experiment", "seed_count", *metric_cols] if col in table.columns]
+        table = table[cols].copy()
+        table.insert(0, "strategy_label", table["experiment"].map(_display_experiment_name).fillna(table["experiment"].astype(str)))
+        return table
+    return pd.DataFrame()
+
+
+def _render_upgrade_metric_comparison(seed_metrics: pd.DataFrame, summary: pd.DataFrame, title: str) -> None:
+    table = _upgrade_metric_table(seed_metrics, summary)
+    if table.empty:
+        st.info("No model-upgrade metric rows are available for the selected filters.")
+        return
+    st.dataframe(table, use_container_width=True, hide_index=True)
+    metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades", "win_rate"] if col in table.columns]
+    if metric_cols:
+        chart = table.set_index("strategy_label")[metric_cols].apply(pd.to_numeric, errors="coerce")
+        render_multi_series(chart, title=title, kind="bar", color_map=_display_experiment_color_map(), height=380)
+
+
+def _portfolio_curve_source(portfolio: pd.DataFrame, env: pd.DataFrame) -> pd.DataFrame:
+    if not portfolio.empty and {"date", "experiment", "portfolio_value"}.issubset(portfolio.columns):
+        curves = portfolio.copy()
+        curves["portfolio_value"] = pd.to_numeric(curves["portfolio_value"], errors="coerce")
+        return curves
+    if not env.empty and "experiment" in env.columns:
+        value_col = _portfolio_after_column(env)
+        if value_col:
+            curves = env.copy()
+            curves["portfolio_value"] = pd.to_numeric(curves[value_col], errors="coerce")
+            return curves
+    return pd.DataFrame()
+
+
+def _render_upgrade_portfolio_curves(portfolio: pd.DataFrame, env: pd.DataFrame, title: str) -> None:
+    curves = _portfolio_curve_source(portfolio, env)
+    if curves.empty or "experiment" not in curves.columns:
+        st.info("No chart-ready model-upgrade portfolio curves are available.")
+        return
+    curves = curves.copy()
+    if "date" in curves.columns:
+        curves["date"] = pd.to_datetime(curves["date"], errors="coerce")
+        index_col = "date"
+    elif "step" in curves.columns:
+        curves["step"] = pd.to_numeric(curves["step"], errors="coerce")
+        index_col = "step"
+    else:
+        curves = curves.reset_index()
+        index_col = "index"
+    curves["series"] = curves["experiment"].astype(str).map(_display_experiment_name).fillna(curves["experiment"].astype(str))
+    curve_frame = curves.pivot_table(index=index_col, columns="series", values="portfolio_value", aggfunc="mean")
+    render_multi_series(curve_frame, title=title, kind="line", color_map=_display_experiment_color_map(), height=360)
+
+
+def _render_upgrade_action_distribution(actions: pd.DataFrame, env: pd.DataFrame, title: str) -> None:
+    if not env.empty and "experiment" in env.columns:
+        label_col = "mapped_action_label" if "mapped_action_label" in env.columns else "action"
+        if label_col in env.columns:
+            action_frame = env.copy()
+            action_frame["experiment"] = action_frame["experiment"].astype(str).map(_display_experiment_name).fillna(action_frame["experiment"].astype(str))
+            action_frame[label_col] = action_frame[label_col].astype(str)
+            counts = action_frame.groupby([label_col, "experiment"]).size().unstack(fill_value=0)
+            render_multi_series(counts, title=title, kind="bar", color_map=_display_experiment_color_map(), height=320)
+            return
+    if not actions.empty and {"experiment", "hold_count", "buy_count", "sell_count"}.issubset(actions.columns):
+        counts = actions.copy()
+        for column in ["hold_count", "buy_count", "sell_count"]:
+            counts[column] = pd.to_numeric(counts[column], errors="coerce").fillna(0)
+        counts = counts.groupby("experiment")[["buy_count", "sell_count", "hold_count"]].sum().rename(index=_display_experiment_name).T
+        render_multi_series(counts, title=title, kind="bar", color_map=_display_experiment_color_map(), height=320)
+        return
+    st.info("No model-upgrade action distribution rows are available.")
 
 
 def rerun_dashboard() -> None:
@@ -2007,296 +2211,752 @@ def render_single_stock_basic_page(symbol: str, bundle: dict[str, object]) -> No
 
 
 def render_peer_cross_analysis_for_symbol(symbol: str, bundle: dict[str, object]) -> None:
-    """Official current experiment page for one held-out target stock."""
+    """Latest model-upgrade summary page for one held-out target stock."""
     code = normalize_symbol_for_path(symbol)
     st.subheader("Peer Cross Analysis")
-    st.caption("官方当前实验：目标股票不参与自己的 NLP 训练；只比较 no-NLP、sector-peer NLP、marketwide-peer NLP 三组。")
+    st.caption("Latest Model-Upgrade DQN Groups: no-NLP vs sentiment/impact NLP groups using the model-upgrade diagnostics.")
     classification = render_target_classification(symbol, bundle)
     st.caption(
         f"Target `{classification['symbol']}` belongs to sector `{classification['sector']}` "
-        f"and industry `{classification['industry']}`. Sector-peer corpus must exclude this target stock."
+        f"and industry `{classification['industry']}`. The target-stock exclusion research principle remains unchanged."
     )
+    _, frames = _target_model_upgrade_frames(code)
+    if not _has_model_upgrade_rows(frames):
+        st.info(_target_company_command(code, bundle))
+        return
+
+    source = frames["seed_level_metrics.csv"] if not frames["seed_level_metrics.csv"].empty else frames["env_dynamics_diagnostics.csv"]
+    filters = _upgrade_filter_controls(source, "peer_upgrade", include_experiment=True)
+    summary = _apply_upgrade_filters(frames["model_upgrade_summary.csv"], filters)
+    seed_metrics = _apply_upgrade_filters(frames["seed_level_metrics.csv"], filters)
+    portfolio = _apply_upgrade_filters(frames["portfolio_curves.csv"], filters)
+    actions = _apply_upgrade_filters(frames["action_distribution_diagnostics.csv"], filters)
+    env = _apply_upgrade_filters(frames["env_dynamics_diagnostics.csv"], filters)
 
     experiment_table = pd.DataFrame(
         [
-            {
-                "group": "Group 0",
-                "experiment": "dqn_without_nlp",
-                "state_feature": "[price, MA50, MA200, RSI, MACD, position, cash]",
-                "meaning": "只用滞后一日的市场/技术状态，是检验 NLP 是否有增益的基准 DQN。",
-            },
-            {
-                "group": "Group 1",
-                "experiment": "dqn_with_sector_peer_nlp",
-                "state_feature": "Group 0 + sector_sentiment_score",
-                "meaning": "用同板块其他股票新闻训练 NLP，排除目标股票，再给目标股票新闻打分。",
-            },
-            {
-                "group": "Group 2",
-                "experiment": "dqn_with_marketwide_peer_nlp",
-                "state_feature": "Group 0 + marketwide_sentiment_score",
-                "meaning": "用全市场其他 A 股新闻训练 NLP，排除目标股票，再给目标股票新闻打分。",
-            },
+            {"experiment": "dqn_without_nlp", "label": "No NLP DQN", "meaning": "Model-upgrade baseline using market/trading state without NLP signal."},
+            {"experiment": "dqn_with_sector_sentiment_nlp", "label": "Sector Sentiment", "meaning": "Peer-trained sector sentiment signal added to the DQN state."},
+            {"experiment": "dqn_with_sector_impact_nlp", "label": "Sector Impact", "meaning": "Peer-trained sector market-impact signal added to the DQN state."},
+            {"experiment": "dqn_with_marketwide_sentiment_nlp", "label": "Marketwide Sentiment", "meaning": "Cross-sector marketwide sentiment signal added when available."},
+            {"experiment": "dqn_with_marketwide_impact_nlp", "label": "Marketwide Impact", "meaning": "Cross-sector marketwide impact signal added when available."},
         ]
     )
     st.dataframe(experiment_table, use_container_width=True, hide_index=True)
 
-    corpus = safe_read_csv(PROJECT_ROOT / "reports" / "tables" / "peer_nlp_corpus_summary.csv", dtype=str)
-    target_corpus = pd.DataFrame()
-    if not corpus.empty and "target_symbol" in corpus.columns:
-        target_corpus = corpus[corpus["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if not target_corpus.empty:
-        st.markdown("#### Peer NLP Corpus")
+    st.markdown("#### Latest Model-Upgrade DQN Groups")
+    _render_upgrade_metric_comparison(seed_metrics, summary, title="Latest model-upgrade DQN groups")
+    st.info("Buy-and-hold benchmark is shown only when a compatible model-upgrade benchmark curve is available.")
+
+    st.markdown("#### Model-Upgrade Portfolio Curves")
+    _render_upgrade_portfolio_curves(portfolio, env, title="Latest Model-Upgrade Portfolio Curves")
+
+    st.markdown("#### Model-Upgrade Buy / Sell / Hold Counts")
+    _render_upgrade_action_distribution(actions, env, title="Latest Model-Upgrade Buy / Sell / Hold counts")
+
+    st.markdown("#### Model-Upgrade NLP Effect Summary")
+    nlp_effect = _apply_upgrade_filters(frames["nlp_incremental_effect.csv"], filters)
+    if nlp_effect.empty:
+        st.info("NLP incremental effect diagnostics are not available. Run paired NLP effect analysis before claiming NLP improvement.")
+    else:
+        st.dataframe(nlp_effect, use_container_width=True, hide_index=True)
+
+
+def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, object]) -> None:
+    """Latest model-upgrade sentiment/impact comparison for the selected target stock."""
+    code = normalize_symbol_for_path(symbol)
+    st.subheader("Latest Model-Upgrade Sentiment / Impact Comparison")
+    st.caption("Compares no-NLP, sentiment NLP, and market-impact NLP DQN groups using the latest model-upgrade diagnostics.")
+    _, frames = _target_model_upgrade_frames(code)
+    if not _has_model_upgrade_rows(frames):
+        st.info(_target_company_command(code, bundle))
+        return
+
+    source = frames["seed_level_metrics.csv"] if not frames["seed_level_metrics.csv"].empty else frames["env_dynamics_diagnostics.csv"]
+    filters = _upgrade_filter_controls(source, "impact_upgrade", include_experiment=True)
+    summary = _apply_upgrade_filters(frames["model_upgrade_summary.csv"], filters)
+    seed_metrics = _apply_upgrade_filters(frames["seed_level_metrics.csv"], filters)
+    portfolio = _apply_upgrade_filters(frames["portfolio_curves.csv"], filters)
+    actions = _apply_upgrade_filters(frames["action_distribution_diagnostics.csv"], filters)
+    env = _apply_upgrade_filters(frames["env_dynamics_diagnostics.csv"], filters)
+    q_values = _apply_upgrade_filters(frames["q_value_diagnostics.csv"], filters)
+    reward_compare = _apply_upgrade_filters(frames["reward_variant_comparison.csv"], filters)
+    state_features = _apply_upgrade_filters(frames["state_feature_diagnostics.csv"], filters)
+
+    st.markdown("#### Latest sentiment / impact DQN comparison")
+    _render_upgrade_metric_comparison(seed_metrics, summary, title="Latest Model-Upgrade Sentiment / Impact Comparison")
+
+    st.markdown("#### Latest Model-Upgrade Portfolio Curves")
+    _render_upgrade_portfolio_curves(portfolio, env, title="Latest Model-Upgrade Portfolio Curves")
+
+    st.markdown("#### Latest Model-Upgrade Action Distribution")
+    _render_upgrade_action_distribution(actions, env, title="Latest Model-Upgrade Action Distribution")
+
+    st.markdown("#### Q-value diagnostics")
+    if q_values.empty:
+        st.warning("Q-value diagnostics not found. Q-value decision view is unavailable.")
+    else:
+        q_plot = q_values.copy()
+        q_plot["selected_q_value"] = pd.to_numeric(q_plot.get("selected_q_value"), errors="coerce")
+        q_plot["q_value_margin"] = pd.to_numeric(q_plot.get("q_value_margin"), errors="coerce")
+        q_summary = q_plot.groupby("experiment")[["selected_q_value", "q_value_margin"]].agg(["mean", "std", "min", "max"])
+        q_summary.columns = ["_".join(col).strip("_") for col in q_summary.columns]
+        q_summary = q_summary.reset_index()
+        q_summary["experiment"] = q_summary["experiment"].astype(str).map(_display_experiment_name).fillna(q_summary["experiment"].astype(str))
+        st.dataframe(q_summary, use_container_width=True, hide_index=True)
+        if "raw_action_id" in q_plot.columns:
+            raw_counts = q_plot.groupby(["raw_action_id", "experiment"]).size().unstack(fill_value=0)
+            raw_counts = raw_counts.rename(columns=_display_experiment_name)
+            render_multi_series(raw_counts, title="Selected raw action distribution", kind="bar", color_map=_display_experiment_color_map(), height=300)
+
+    st.markdown("#### State feature diagnostics")
+    if state_features.empty:
+        st.info("state_feature_diagnostics.csv is missing for the selected model-upgrade rows.")
+    else:
+        st.caption("The latest model-upgrade experiment uses normalized_plus features instead of the old official raw 8D state interface when configured that way.")
+        st.dataframe(state_features.head(500), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Reward variant comparison")
+    if reward_compare.empty:
+        st.info("reward_variant_comparison.csv is missing for the selected model-upgrade rows.")
+    else:
+        st.dataframe(reward_compare, use_container_width=True, hide_index=True)
+        metric_cols = [col for col in ["mean_final_equity", "mean_sharpe_ratio", "mean_max_drawdown", "mean_number_of_trades", "mean_exposure_ratio"] if col in reward_compare.columns]
+        if "reward_variant" in reward_compare.columns and metric_cols:
+            chart = reward_compare.groupby("reward_variant")[metric_cols].mean(numeric_only=True)
+            render_multi_series(chart, title="one_day_return vs three_day_return", kind="bar", height=320)
+
+
+def _diagnostic_sort(frame: pd.DataFrame) -> pd.DataFrame:
+    """Sort trade diagnostics by date when available, then by step."""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    sort_cols: list[str] = []
+    helper_cols: list[str] = []
+    if "date" in out.columns and out["date"].notna().any():
+        helper = "_diagnostic_sort_date"
+        out[helper] = pd.to_datetime(out["date"], errors="coerce")
+        sort_cols.append(helper)
+        helper_cols.append(helper)
+    if "step" in out.columns and out["step"].notna().any():
+        helper = "_diagnostic_sort_step"
+        out[helper] = pd.to_numeric(out["step"], errors="coerce")
+        sort_cols.append(helper)
+        helper_cols.append(helper)
+    if sort_cols:
+        out = out.sort_values(sort_cols, kind="mergesort")
+    return out.drop(columns=helper_cols, errors="ignore")
+
+
+def _diagnostic_x_column(frame: pd.DataFrame) -> str:
+    if "date" in frame.columns and frame["date"].notna().any():
+        return "date"
+    if "step" in frame.columns:
+        return "step"
+    return frame.index.name or "index"
+
+
+def _diagnostic_options(frame: pd.DataFrame, column: str, preferred: list[str] | None = None) -> list[str]:
+    if frame.empty or column not in frame.columns:
+        return []
+    values = [str(value) for value in frame[column].dropna().unique().tolist()]
+    preferred = preferred or []
+    ordered = [value for value in preferred if value in values]
+    ordered.extend(sorted(value for value in values if value not in ordered))
+    return ordered
+
+
+def _safe_metric_value(value: object, *, percent: bool = False, money: bool = False) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "N/A"
+    if percent:
+        return f"{float(number):.2%}"
+    if money:
+        return f"{float(number):,.2f}"
+    return f"{float(number):.4f}"
+
+
+def _portfolio_after_column(frame: pd.DataFrame) -> str | None:
+    for column in ["portfolio_after", "portfolio_after_trade", "portfolio_value"]:
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _filter_diagnostic_frame(frame: pd.DataFrame, selections: dict[str, str]) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    for column, value in selections.items():
+        if not value or value == "all" or column not in out.columns:
+            continue
+        out = out[out[column].astype(str) == str(value)]
+    return out
+
+
+def _merge_q_value_diagnostics(env_frame: pd.DataFrame, q_values: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
+    if env_frame.empty or q_values.empty:
+        return env_frame.copy(), 0, 0
+    required_keys = ["run_id", "period", "episode", "step"]
+    if not all(key in env_frame.columns and key in q_values.columns for key in required_keys):
+        return env_frame.copy(), 0, len(env_frame)
+    q_cols = required_keys + [
+        col
+        for col in [
+            "raw_action_id",
+            "mapped_action_label",
+            "q_hold_or_action0",
+            "q_action1",
+            "q_action2",
+            "q_action3",
+            "q_action4",
+            "selected_q_value",
+            "q_value_margin",
+        ]
+        if col in q_values.columns
+    ]
+    q_subset = q_values[q_cols].drop_duplicates(required_keys, keep="last")
+    merged = env_frame.merge(q_subset, on=required_keys, how="left", suffixes=("", "_q"))
+    dropped_rows = max(0, len(env_frame) - len(merged))
+    missing_q_matches = int(merged["selected_q_value"].isna().sum()) if "selected_q_value" in merged.columns else len(merged)
+    return merged, dropped_rows, missing_q_matches
+
+
+def _trade_hover_columns(frame: pd.DataFrame) -> list[str]:
+    requested = [
+        "date",
+        "step",
+        "raw_action_id",
+        "mapped_action_label",
+        "action_mode",
+        "target_exposure",
+        "current_exposure_before",
+        "current_exposure_after",
+        "price",
+        "cash_before",
+        "cash_after",
+        "shares_before",
+        "shares_after",
+        "portfolio_before",
+        "portfolio_after",
+        "reward",
+        "transaction_cost",
+    ]
+    return [column for column in requested if column in frame.columns]
+
+
+def _add_action_markers(fig: go.Figure, frame: pd.DataFrame, *, x_col: str, y_col: str) -> None:
+    if frame.empty or x_col not in frame.columns or y_col not in frame.columns:
+        return
+    label_col = "mapped_action_label" if "mapped_action_label" in frame.columns else "action"
+    hover_cols = _trade_hover_columns(frame)
+    action_styles = {
+        "Buy": {"color": PALETTE["green"], "symbol": "triangle-up", "size": 10, "opacity": 0.95},
+        "Sell": {"color": PALETTE["rose"], "symbol": "triangle-down", "size": 10, "opacity": 0.95},
+        "Hold": {"color": PALETTE["muted"], "symbol": "circle", "size": 6, "opacity": 0.35},
+    }
+    for label, style in action_styles.items():
+        part = frame[frame[label_col].astype(str).str.lower() == label.lower()].copy()
+        if part.empty:
+            continue
+        customdata = part[hover_cols].astype(str).to_numpy() if hover_cols else None
+        hovertemplate = "<br>".join([f"{col}: %{{customdata[{idx}]}}" for idx, col in enumerate(hover_cols)])
+        if hovertemplate:
+            hovertemplate += "<extra></extra>"
+        fig.add_trace(
+            go.Scatter(
+                x=part[x_col],
+                y=pd.to_numeric(part[y_col], errors="coerce"),
+                mode="markers",
+                name=label,
+                marker={
+                    "color": style["color"],
+                    "symbol": style["symbol"],
+                    "size": style["size"],
+                    "opacity": style["opacity"],
+                    "line": {"width": 0.5, "color": PALETTE["white"]},
+                },
+                customdata=customdata,
+                hovertemplate=hovertemplate or None,
+            )
+        )
+
+
+def _render_trade_summary_cards(frame: pd.DataFrame, benchmark_curve: pd.DataFrame) -> None:
+    sorted_frame = _diagnostic_sort(frame)
+    label_col = "mapped_action_label" if "mapped_action_label" in sorted_frame.columns else "action"
+    labels = sorted_frame[label_col].astype(str) if label_col in sorted_frame.columns else pd.Series(dtype=str)
+    exposure = pd.to_numeric(sorted_frame.get("current_exposure_after"), errors="coerce") if "current_exposure_after" in sorted_frame.columns else pd.Series(dtype=float)
+    portfolio_col = _portfolio_after_column(sorted_frame)
+    portfolio = pd.to_numeric(sorted_frame[portfolio_col], errors="coerce") if portfolio_col else pd.Series(dtype=float)
+    reward = pd.to_numeric(sorted_frame.get("reward"), errors="coerce") if "reward" in sorted_frame.columns else pd.Series(dtype=float)
+    transaction_cost = pd.to_numeric(sorted_frame.get("transaction_cost"), errors="coerce") if "transaction_cost" in sorted_frame.columns else pd.Series(dtype=float)
+    start_value = pd.to_numeric(sorted_frame.get("portfolio_before"), errors="coerce").dropna()
+    start_value = start_value.iloc[0] if not start_value.empty else (portfolio.dropna().iloc[0] if not portfolio.dropna().empty else np.nan)
+    final_value = portfolio.dropna().iloc[-1] if not portfolio.dropna().empty else np.nan
+    total_return = (final_value / start_value - 1) if pd.notna(start_value) and start_value else np.nan
+    unique_portfolio_values = int(portfolio.round(6).nunique()) if not portfolio.dropna().empty else "N/A"
+    hold_ratio = float((labels.str.lower() == "hold").mean()) if not labels.empty else np.nan
+    q_margin = pd.to_numeric(sorted_frame.get("q_value_margin"), errors="coerce") if "q_value_margin" in sorted_frame.columns else pd.Series(dtype=float)
+    benchmark_col = _portfolio_after_column(benchmark_curve) if not benchmark_curve.empty else None
+    benchmark_portfolio = pd.to_numeric(benchmark_curve[benchmark_col], errors="coerce").dropna() if benchmark_col else pd.Series(dtype=float)
+    benchmark_final = benchmark_portfolio.iloc[-1] if not benchmark_portfolio.empty else np.nan
+    benchmark_diff = final_value - benchmark_final if pd.notna(final_value) and pd.notna(benchmark_final) else np.nan
+
+    metrics = [
+        ("Buy count", int((labels.str.lower() == "buy").sum()) if not labels.empty else "N/A"),
+        ("Sell count", int((labels.str.lower() == "sell").sum()) if not labels.empty else "N/A"),
+        ("Hold count", int((labels.str.lower() == "hold").sum()) if not labels.empty else "N/A"),
+        ("Average exposure", _safe_metric_value(exposure.mean(), percent=True)),
+        ("Maximum exposure", _safe_metric_value(exposure.max(), percent=True)),
+        ("Minimum exposure", _safe_metric_value(exposure.min(), percent=True)),
+        ("Final portfolio value", _safe_metric_value(final_value, money=True)),
+        ("Total return", _safe_metric_value(total_return, percent=True)),
+        ("Average reward", _safe_metric_value(reward.mean())),
+        ("Total transaction cost", _safe_metric_value(transaction_cost.sum(), money=True)),
+        ("Unique portfolio values", unique_portfolio_values),
+        ("Hold ratio", _safe_metric_value(hold_ratio, percent=True)),
+        ("Average Q-value margin", _safe_metric_value(q_margin.mean())),
+        ("DQN final value", _safe_metric_value(final_value, money=True)),
+        ("Buy-and-hold final value", _safe_metric_value(benchmark_final, money=True)),
+        ("DQN minus benchmark", _safe_metric_value(benchmark_diff, money=True)),
+    ]
+    for offset in range(0, len(metrics), 5):
+        cols = st.columns(5)
+        for col, (label, value) in zip(cols, metrics[offset : offset + 5]):
+            col.metric(label, value)
+
+
+def _render_portfolio_actions_chart(frame: pd.DataFrame, portfolio_curves: pd.DataFrame) -> None:
+    value_col = _portfolio_after_column(frame)
+    if not value_col:
+        st.warning("Portfolio value columns are missing for the selected run.")
+        return
+    sorted_frame = _diagnostic_sort(frame)
+    x_col = _diagnostic_x_column(sorted_frame)
+    if x_col not in sorted_frame.columns:
+        sorted_frame = sorted_frame.reset_index().rename(columns={"index": "index"})
+        x_col = "index"
+    fig = go.Figure()
+    hover_cols = [col for col in ["date", "step", "portfolio_before", "portfolio_after", "reward", "transaction_cost"] if col in sorted_frame.columns]
+    fig.add_trace(
+        go.Scatter(
+            x=sorted_frame[x_col],
+            y=pd.to_numeric(sorted_frame[value_col], errors="coerce"),
+            mode="lines",
+            name=value_col,
+            line={"color": PALETTE["ink"], "width": 2.6},
+            customdata=sorted_frame[hover_cols].astype(str).to_numpy() if hover_cols else None,
+            hovertemplate=("<br>".join([f"{col}: %{{customdata[{idx}]}}" for idx, col in enumerate(hover_cols)]) + "<extra></extra>") if hover_cols else None,
+        )
+    )
+    _add_action_markers(fig, sorted_frame, x_col=x_col, y_col=value_col)
+
+    benchmark_available = False
+    if not portfolio_curves.empty:
+        benchmark_col = _portfolio_after_column(portfolio_curves)
+        if benchmark_col:
+            benchmark_rows = _diagnostic_sort(portfolio_curves)
+            benchmark_x = _diagnostic_x_column(benchmark_rows)
+            if benchmark_x in benchmark_rows.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=benchmark_rows[benchmark_x],
+                        y=pd.to_numeric(benchmark_rows[benchmark_col], errors="coerce"),
+                        mode="lines",
+                        name="buy_and_hold",
+                        line={"color": PALETTE["muted"], "width": 2, "dash": "dash"},
+                    )
+                )
+                benchmark_available = True
+    fig.update_layout(**_base_layout(title="Portfolio Value with DQN Trade Actions", height=430))
+    _render_plot(fig)
+    if not benchmark_available:
+        st.info("Benchmark curve not available for the selected run.")
+
+
+def _render_exposure_actions_chart(frame: pd.DataFrame) -> None:
+    sorted_frame = _diagnostic_sort(frame)
+    x_col = _diagnostic_x_column(sorted_frame)
+    if x_col not in sorted_frame.columns:
+        sorted_frame = sorted_frame.reset_index().rename(columns={"index": "index"})
+        x_col = "index"
+    exposure_cols = [col for col in ["target_exposure", "current_exposure_before", "current_exposure_after", "position_ratio_after"] if col in sorted_frame.columns]
+    if not exposure_cols:
+        st.warning("Exposure columns are missing for the selected run.")
+        return
+    fig = go.Figure()
+    colors = {
+        "current_exposure_before": PALETTE["muted"],
+        "current_exposure_after": PALETTE["teal"],
+        "target_exposure": PALETTE["purple"],
+        "position_ratio_after": PALETTE["blue"],
+    }
+    for col in exposure_cols:
+        fig.add_trace(
+            go.Scatter(
+                x=sorted_frame[x_col],
+                y=pd.to_numeric(sorted_frame[col], errors="coerce"),
+                mode="lines",
+                name=col,
+                line={"color": colors.get(col, PALETTE["blue"]), "width": 2},
+            )
+        )
+    marker_y = "current_exposure_after" if "current_exposure_after" in sorted_frame.columns else exposure_cols[0]
+    _add_action_markers(fig, sorted_frame, x_col=x_col, y_col=marker_y)
+    fig.update_layout(**_base_layout(title="Target Exposure and Actual Exposure Over Time", height=410))
+    fig.update_yaxes(tickformat=".0%")
+    _render_plot(fig)
+
+
+def _render_q_value_decision_chart(frame: pd.DataFrame, action_mode: str) -> None:
+    if frame.empty or "selected_q_value" not in frame.columns:
+        st.warning("Q-value diagnostics not found. Q-value decision view is unavailable.")
+        return
+    sorted_frame = _diagnostic_sort(frame)
+    x_col = _diagnostic_x_column(sorted_frame)
+    if x_col not in sorted_frame.columns:
+        sorted_frame = sorted_frame.reset_index().rename(columns={"index": "index"})
+        x_col = "index"
+    q_cols = ["q_hold_or_action0", "q_action1", "q_action2"]
+    if action_mode == "target_position":
+        q_cols.extend(["q_action3", "q_action4"])
+    q_cols = [col for col in q_cols if col in sorted_frame.columns]
+    if not q_cols:
+        st.warning("Q-value action columns are unavailable for the selected run.")
+        return
+    fig = go.Figure()
+    for index, col in enumerate(q_cols):
+        fig.add_trace(
+            go.Scatter(
+                x=sorted_frame[x_col],
+                y=pd.to_numeric(sorted_frame[col], errors="coerce"),
+                mode="lines",
+                name=col,
+                line={"color": SERIES_COLORS[index % len(SERIES_COLORS)], "width": 1.5},
+                opacity=0.75,
+            )
+        )
+    hover_cols = [col for col in ["date", "step", "raw_action_id", "mapped_action_label", "selected_q_value", "q_value_margin"] if col in sorted_frame.columns]
+    fig.add_trace(
+        go.Scatter(
+            x=sorted_frame[x_col],
+            y=pd.to_numeric(sorted_frame["selected_q_value"], errors="coerce"),
+            mode="lines+markers",
+            name="selected_q_value",
+            line={"color": "#000000", "width": 4},
+            marker={"color": "#000000", "size": 5},
+            customdata=sorted_frame[hover_cols].astype(str).to_numpy() if hover_cols else None,
+            hovertemplate=("<br>".join([f"{col}: %{{customdata[{idx}]}}" for idx, col in enumerate(hover_cols)]) + "<extra></extra>") if hover_cols else None,
+        )
+    )
+    if "q_value_margin" in sorted_frame.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=sorted_frame[x_col],
+                y=pd.to_numeric(sorted_frame["q_value_margin"], errors="coerce"),
+                mode="lines",
+                name="q_value_margin",
+                line={"color": PALETTE["muted"], "width": 2, "dash": "dot"},
+            )
+        )
+    fig.update_layout(**_base_layout(title="Q-Values Behind Each DQN Decision", height=430))
+    _render_plot(fig)
+    st.caption(
+        "In target_position mode, action0 to action4 correspond to target exposure 0%, 25%, 50%, 75%, 100%. "
+        "The selected action is the action with the highest Q-value. q_value_margin measures the gap between the best and second-best action."
+    )
+
+
+def _render_reward_breakdown_chart(reward_diagnostics: pd.DataFrame, selections: dict[str, str]) -> None:
+    if reward_diagnostics.empty:
+        st.warning("Reward diagnostics not found. Run the model-upgrade diagnostic script with reward logging enabled.")
+        return
+    reward_frame = _filter_diagnostic_frame(reward_diagnostics, selections)
+    reward_frame = _diagnostic_sort(reward_frame)
+    reward_cols = [
+        col
+        for col in [
+            "portfolio_return",
+            "benchmark_return",
+            "base_reward",
+            "final_reward",
+            "transaction_cost",
+            "flat_penalty_applied",
+            "trade_bonus_applied",
+            "reward",
+        ]
+        if col in reward_frame.columns
+    ]
+    if reward_frame.empty or not reward_cols:
+        st.warning("Reward diagnostics do not contain chart-ready reward columns for the selected run.")
+        return
+    x_col = _diagnostic_x_column(reward_frame)
+    if x_col not in reward_frame.columns:
+        reward_frame = reward_frame.reset_index().rename(columns={"index": "index"})
+        x_col = "index"
+    fig = go.Figure()
+    for index, col in enumerate(reward_cols):
+        fig.add_trace(
+            go.Scatter(
+                x=reward_frame[x_col],
+                y=pd.to_numeric(reward_frame[col], errors="coerce"),
+                mode="lines",
+                name=col,
+                line={"color": SERIES_COLORS[index % len(SERIES_COLORS)], "width": 2},
+            )
+        )
+    fig.update_layout(**_base_layout(title="Reward Breakdown by Trading Step", height=410))
+    _render_plot(fig)
+
+
+def _render_trade_table(frame: pd.DataFrame, selections: dict[str, str]) -> None:
+    with st.expander("Detailed Trade Log", expanded=False):
+        action_filter = st.selectbox("Trade table action filter", ["all", "Buy", "Sell", "Hold"], index=0, key="trade_behavior_table_action")
+        table = _diagnostic_sort(frame)
+        label_col = "mapped_action_label" if "mapped_action_label" in table.columns else "action"
+        if action_filter != "all" and label_col in table.columns:
+            table = table[table[label_col].astype(str).str.lower() == action_filter.lower()]
         display_cols = [
             col
             for col in [
                 "target_symbol",
-                "target_company_name",
-                "target_sector",
-                "corpus_type",
-                "number_of_peer_stocks",
-                "total_news_count",
-                "date_start",
-                "date_end",
-                "corpus_status",
-                "high_density_only",
-                "included_symbols",
-                "excluded_symbols",
+                "target_company",
+                "run_id",
+                "run_mode",
+                "experiment",
+                "model_variant",
+                "reward_variant",
+                "state_feature_mode",
+                "seed",
+                "period",
+                "episode",
+                "date",
+                "step",
+                "raw_action_id",
+                "mapped_action_label",
+                "action",
+                "action_mode",
+                "target_exposure",
+                "current_exposure_before",
+                "current_exposure_after",
+                "price",
+                "cash_before",
+                "cash_after",
+                "shares_before",
+                "shares_after",
+                "portfolio_before",
+                "portfolio_after",
+                "portfolio_after_trade",
+                "portfolio_value",
+                "reward",
+                "transaction_cost",
             ]
-            if col in target_corpus.columns
+            if col in table.columns
         ]
-        st.dataframe(target_corpus[display_cols], use_container_width=True, hide_index=True)
-        sector_row = target_corpus[target_corpus["corpus_type"].astype(str) == "sector_peer"]
-        market_row = target_corpus[target_corpus["corpus_type"].astype(str) == "marketwide_peer"]
-        corpus_cols = st.columns(4)
-        corpus_cols[0].metric("Sector corpus", _first_value(sector_row, "corpus_status", "-"))
-        corpus_cols[1].metric("Sector peers", _first_value(sector_row, "number_of_peer_stocks", "-"))
-        corpus_cols[2].metric("Marketwide corpus", _first_value(market_row, "corpus_status", "-"))
-        corpus_cols[3].metric("Marketwide peers", _first_value(market_row, "number_of_peer_stocks", "-"))
-    else:
-        st.warning("No peer corpus summary found for this target. Run the peer cross workflow or supplement sector peers first.")
-
-    peer_daily = bundle.get("peer_daily", pd.DataFrame())
-    if isinstance(peer_daily, pd.DataFrame) and not peer_daily.empty:
-        st.markdown("#### Peer-Trained Sentiment on Target News")
-        peer_daily = peer_daily.copy()
-        peer_daily["date"] = pd.to_datetime(peer_daily.get("date"), errors="coerce")
-        score_cols = [col for col in ["sector_sentiment_score", "marketwide_sentiment_score"] if col in peer_daily.columns]
-        if score_cols:
-            sentiment_frame = peer_daily.set_index("date")[score_cols].apply(pd.to_numeric, errors="coerce")
-            render_multi_series(
-                sentiment_frame,
-                title="Sector-peer vs marketwide-peer sentiment scores",
-                kind="line",
-                color_map={"sector_sentiment_score": PALETTE["teal"], "marketwide_sentiment_score": PALETTE["rose"]},
-                height=340,
-            )
-            st.caption("这张图表示 peer-trained NLP 对目标股票近端新闻的每日情绪打分；没有新闻的交易日不被当作真实中性新闻。")
-        if "target_news_count" in peer_daily.columns:
-            peer_daily["target_news_count"] = pd.to_numeric(peer_daily["target_news_count"], errors="coerce").fillna(0)
-            render_series_bar(peer_daily, "date", "target_news_count", title="Target stock daily news count", color=PALETTE["blue"], height=300)
-            st.caption("这张图显示目标股票在测试窗口内实际可被 NLP 打分的新闻密度。")
-    else:
-        st.warning("`peer_nlp_daily_sentiment.csv` is missing for this stock.")
-
-    metrics = bundle.get("peer_metrics", pd.DataFrame())
-    if isinstance(metrics, pd.DataFrame) and not metrics.empty:
-        st.markdown("#### Peer Sentiment Diagnostic Metrics")
-        metrics = metrics.copy()
-        st.caption("这里保留 peer sentiment scorer 的诊断输出；正式 DQN ablation 以 Market Impact Analysis 中的 market_impact_ablation_metrics.csv 为准。")
-        st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
-        metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown"] if col in metrics.columns]
-        if "experiment" in metrics.columns and metric_cols:
-            chart_metrics = metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce")
-            render_multi_series(chart_metrics, title="Sentiment diagnostic metrics", kind="bar", color_map=EXPERIMENT_COLORS, height=360)
-            st.caption("这张表只说明 sentiment-only 诊断是否正常，不替代正式 sector sentiment/impact ablation。")
-    else:
-        st.warning("`peer_nlp_ablation_metrics.csv` sentiment diagnostic output is missing for this stock.")
-
-    curves = bundle.get("peer_curves", pd.DataFrame())
-    if isinstance(curves, pd.DataFrame) and not curves.empty and {"date", "experiment", "portfolio_value"}.issubset(curves.columns):
-        curves = curves.copy()
-        curves["date"] = pd.to_datetime(curves["date"], errors="coerce")
-        curves["portfolio_value"] = pd.to_numeric(curves["portfolio_value"], errors="coerce")
-        curve_frame = curves.pivot_table(index="date", columns="experiment", values="portfolio_value", aggfunc="mean")
-        render_multi_series(curve_frame, title="Portfolio value curves", kind="line", color_map=EXPERIMENT_COLORS, height=360)
-        st.caption("这张图是三种策略的测试期资产曲线；如果曲线完全平坦或交易次数为 0，结果应标记为不可靠。")
-    else:
-        st.warning("`peer_nlp_portfolio_curves.csv` is missing or incomplete for this stock.")
-
-    logs = bundle.get("peer_logs", pd.DataFrame())
-    if isinstance(logs, pd.DataFrame) and not logs.empty and {"experiment", "action"}.issubset(logs.columns):
-        st.markdown("#### Action Distribution")
-        counts = logs.copy()
-        counts["experiment"] = counts["experiment"].astype(str)
-        counts["action"] = counts["action"].astype(str)
-        action_frame = counts.groupby(["action", "experiment"]).size().unstack(fill_value=0)
-        render_multi_series(action_frame, title="Buy / Sell / Hold counts", kind="bar", color_map=EXPERIMENT_COLORS, height=320)
-        st.caption("这张图检查 DQN 是否真的产生交易行为。若几乎全是 Hold，NLP 效果通常不应强解释。")
-
-    peer_effect = bundle.get("peer_effect", pd.DataFrame())
-    if isinstance(peer_effect, pd.DataFrame) and not peer_effect.empty:
-        st.markdown("#### NLP Effect Summary for This Target")
-        st.dataframe(peer_effect, use_container_width=True, hide_index=True)
-
-    cross_summary = safe_read_csv(SYSTEM_OUTPUT_DIR / "peer_nlp_cross_stock_summary.csv")
-    if not cross_summary.empty and "target_symbol" in cross_summary.columns:
-        target_summary = cross_summary[cross_summary["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-        if not target_summary.empty:
-            st.markdown("#### Cross-Stock Summary Row for This Target")
-            st.dataframe(target_summary, use_container_width=True, hide_index=True)
-            effect_cols = [col for col in ["sector_final_equity_effect", "marketwide_final_equity_effect", "sector_sharpe_effect", "marketwide_sharpe_effect"] if col in target_summary.columns]
-            if effect_cols:
-                effects = target_summary.set_index("target_symbol")[effect_cols].apply(pd.to_numeric, errors="coerce")
-                render_multi_series(effects, title="Peer NLP effects for selected target", kind="bar", height=320)
-                st.caption("正值代表该 peer NLP 组相对 no-NLP DQN 更好；负值代表表现变差。")
-
-    integrity = bundle.get("peer_integrity", pd.DataFrame())
-    if isinstance(integrity, pd.DataFrame) and not integrity.empty:
-        with st.expander("Peer NLP integrity checks", expanded=False):
-            st.dataframe(integrity, use_container_width=True, hide_index=True)
-    state_diag = bundle.get("peer_state_diagnostics", pd.DataFrame())
-    if isinstance(state_diag, pd.DataFrame) and not state_diag.empty:
-        with st.expander("Peer NLP state diagnostics", expanded=False):
-            st.dataframe(state_diag, use_container_width=True, hide_index=True)
-
-
-def render_market_impact_analysis_for_symbol(symbol: str, bundle: dict[str, object]) -> None:
-    """Market-impact add-on result page for the selected held-out target stock."""
-    st.subheader("Official Sector Sentiment / Impact DQN Comparison")
-    st.caption("默认正式实验是 no-NLP、sector sentiment、sector impact；勾选 marketwide add-on 后再额外加入 marketwide sentiment 和 marketwide impact。")
-    daily = bundle.get("market_impact_daily", pd.DataFrame())
-    metrics = bundle.get("market_impact_metrics", pd.DataFrame())
-    curves = bundle.get("market_impact_curves", pd.DataFrame())
-    logs = bundle.get("market_impact_logs", pd.DataFrame())
-    effect = bundle.get("market_impact_effect", pd.DataFrame())
-    reliability = bundle.get("market_impact_reliability", pd.DataFrame())
-    diagnostics = bundle.get("market_impact_state_diagnostics", pd.DataFrame())
-
-    required = {
-        "peer_market_impact_daily_signal.csv": isinstance(daily, pd.DataFrame) and not daily.empty,
-        "market_impact_ablation_metrics.csv": isinstance(metrics, pd.DataFrame) and not metrics.empty,
-        "market_impact_portfolio_curves.csv": isinstance(curves, pd.DataFrame) and not curves.empty,
-        "market_impact_trading_logs.csv": isinstance(logs, pd.DataFrame) and not logs.empty,
-    }
-    missing = [name for name, ok in required.items() if not ok]
-    if missing:
-        st.warning("Market-impact output is incomplete: " + ", ".join(missing))
-        st.caption("请运行 target experiment 生成正式 sector-only ablation；marketwide rows 只有在勾选 add-on 后才会出现。")
-        return
-
-    daily = daily.copy()
-    daily["date"] = pd.to_datetime(daily.get("date"), errors="coerce")
-    cols = st.columns(4)
-    cols[0].metric("Sector impact corpus", str(daily.get("sector_impact_corpus_status", pd.Series(["-"])).dropna().iloc[0]) if "sector_impact_corpus_status" in daily.columns and daily["sector_impact_corpus_status"].notna().any() else "-")
-    cols[1].metric("Marketwide impact corpus", str(daily.get("marketwide_impact_corpus_status", pd.Series(["-"])).dropna().iloc[0]) if "marketwide_impact_corpus_status" in daily.columns and daily["marketwide_impact_corpus_status"].notna().any() else "-")
-    cols[2].metric("Target news coverage", f"{float(pd.to_numeric(daily.get('news_available', 0), errors='coerce').fillna(0).mean()):.1%}")
-    label = "-"
-    if isinstance(effect, pd.DataFrame) and not effect.empty:
-        label = str(effect.iloc[0].get("reliability_status", "-"))
-    cols[3].metric("Reliability", label)
-
-    score_cols = [col for col in ["sector_impact_score", "marketwide_impact_score"] if col in daily.columns]
-    if score_cols:
-        render_multi_series(
-            daily.set_index("date")[score_cols].apply(pd.to_numeric, errors="coerce").rename(
-                columns={
-                    "sector_impact_score": "Sector Impact",
-                    "marketwide_impact_score": "Marketwide Impact",
-                }
-            ),
-            title="Market-impact scores",
-            kind="line",
-            color_map={"Sector Impact": PALETTE["purple"], "Marketwide Impact": PALETTE["rose"]},
-            height=340,
+        st.dataframe(table[display_cols] if display_cols else table, use_container_width=True, hide_index=True)
+        run_id = selections.get("run_id") or "selected_run"
+        st.download_button(
+            "Download filtered trade log as CSV",
+            data=table.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"trade_log_{run_id}_{action_filter}.csv",
+            mime="text/csv",
+            use_container_width=True,
         )
-    if "target_news_count" in daily.columns:
-        render_series_bar(daily, "date", "target_news_count", title="Target news count for impact scoring", color=PALETTE["amber"], height=300)
-
-    st.markdown("#### Market-impact Ablation Metrics")
-    st.caption("主表展示正式 DQN groups 的 8 个官方指标；buy-and-hold 只是 benchmark，不计入实验组。")
-    st.dataframe(_official_metric_table(metrics), use_container_width=True, hide_index=True)
-    metric_cols = [col for col in ["final_equity", "cumulative_return", "sharpe_ratio", "max_drawdown", "number_of_trades"] if col in metrics.columns]
-    if "experiment" in metrics.columns and metric_cols:
-        chart_metrics = metrics.copy()
-        chart_metrics["experiment"] = chart_metrics["experiment"].astype(str).map(_display_experiment_name).fillna(chart_metrics["experiment"].astype(str))
-        render_multi_series(chart_metrics.set_index("experiment")[metric_cols].apply(pd.to_numeric, errors="coerce"), title="Official DQN groups plus buy-and-hold benchmark", kind="bar", color_map=_display_experiment_color_map(), height=380)
-
-    if {"date", "experiment", "portfolio_value"}.issubset(curves.columns):
-        curves = curves.copy()
-        curves["date"] = pd.to_datetime(curves["date"], errors="coerce")
-        curves["experiment"] = curves["experiment"].astype(str).map(_display_experiment_name).fillna(curves["experiment"].astype(str))
-        curves["portfolio_value"] = pd.to_numeric(curves["portfolio_value"], errors="coerce")
-        curve_frame = curves.pivot_table(index="date", columns="experiment", values="portfolio_value", aggfunc="mean")
-        render_multi_series(curve_frame, title="Official portfolio curves", kind="line", color_map=_display_experiment_color_map(), height=360)
-
-    if {"experiment", "action"}.issubset(logs.columns):
-        action_logs = logs.copy()
-        action_logs["experiment"] = action_logs["experiment"].astype(str).map(_display_experiment_name).fillna(action_logs["experiment"].astype(str))
-        action_frame = action_logs.groupby(["action", "experiment"]).size().unstack(fill_value=0)
-        render_multi_series(action_frame, title="Official Buy / Sell / Hold counts", kind="bar", color_map=_display_experiment_color_map(), height=320)
-
-    if isinstance(effect, pd.DataFrame) and not effect.empty:
-        st.markdown("#### Market-impact Effect Summary")
-        st.dataframe(effect, use_container_width=True, hide_index=True)
-    if isinstance(reliability, pd.DataFrame) and not reliability.empty:
-        with st.expander("Market-impact reliability checks", expanded=False):
-            st.dataframe(reliability, use_container_width=True, hide_index=True)
-    if isinstance(diagnostics, pd.DataFrame) and not diagnostics.empty:
-        with st.expander("Market-impact state diagnostics", expanded=False):
-            st.dataframe(diagnostics, use_container_width=True, hide_index=True)
 
 
-def render_model_upgrade_diagnostics(symbol: str) -> None:
+def render_trade_by_trade_dqn_behavior(
+    env_dynamics: pd.DataFrame,
+    q_values: pd.DataFrame,
+    reward_diagnostics: pd.DataFrame,
+    seed_metrics: pd.DataFrame,
+    actions: pd.DataFrame,
+    portfolio_curves: pd.DataFrame,
+    source_bundle: object | None = None,
+    selected_target_symbol: str = "",
+) -> None:
+    st.markdown("### Trade-by-Trade DQN Behavior")
+    if env_dynamics.empty:
+        st.info("Trade behavior diagnostics not found. Run scripts/run_model_upgrade_grid.py --medium-test first.")
+        return
+
+    base = env_dynamics.copy()
+    selector_cols = st.columns(4)
+    run_modes = _diagnostic_options(base, "run_mode", ["medium_test", "quick_test", "full_grid"])
+    selected_run_mode = selector_cols[0].selectbox("Trade run_mode", run_modes, index=0, key="trade_behavior_run_mode") if run_modes else ""
+    experiments = _diagnostic_options(_filter_diagnostic_frame(base, {"run_mode": selected_run_mode}), "experiment")
+    selected_experiment = selector_cols[1].selectbox("Trade experiment", experiments, index=0, key="trade_behavior_experiment") if experiments else ""
+    models = _diagnostic_options(_filter_diagnostic_frame(base, {"run_mode": selected_run_mode, "experiment": selected_experiment}), "model_variant")
+    selected_model = selector_cols[2].selectbox("Trade model_variant", models, index=0, key="trade_behavior_model") if models else ""
+    rewards = _diagnostic_options(_filter_diagnostic_frame(base, {"run_mode": selected_run_mode, "experiment": selected_experiment, "model_variant": selected_model}), "reward_variant")
+    selected_reward = selector_cols[3].selectbox("Trade reward_variant", rewards, index=0, key="trade_behavior_reward") if rewards else ""
+
+    selector_cols = st.columns(5)
+    partial = _filter_diagnostic_frame(
+        base,
+        {
+            "run_mode": selected_run_mode,
+            "experiment": selected_experiment,
+            "model_variant": selected_model,
+            "reward_variant": selected_reward,
+        },
+    )
+    states = _diagnostic_options(partial, "state_feature_mode")
+    selected_state = selector_cols[0].selectbox("Trade state_feature_mode", states, index=0, key="trade_behavior_state") if states else ""
+    action_modes = _diagnostic_options(partial, "action_mode")
+    selected_action_mode = selector_cols[1].selectbox("Trade action_mode", action_modes, index=0, key="trade_behavior_action_mode") if action_modes else ""
+    seeds = _diagnostic_options(partial, "seed")
+    selected_seed = selector_cols[2].selectbox("Trade seed", seeds, index=0, key="trade_behavior_seed") if seeds else ""
+    periods = ["all"] + _diagnostic_options(partial, "period")
+    selected_period = selector_cols[3].selectbox("Trade period", periods, index=0, key="trade_behavior_period")
+    chart_modes = ["Portfolio + Actions", "Exposure + Actions", "Q-values", "Reward Breakdown", "Trade Table"]
+    selected_chart_mode = selector_cols[4].selectbox("Trade chart mode", chart_modes, index=0, key="trade_behavior_chart_mode")
+
+    selections = {
+        "run_mode": selected_run_mode,
+        "experiment": selected_experiment,
+        "model_variant": selected_model,
+        "reward_variant": selected_reward,
+        "state_feature_mode": selected_state,
+        "action_mode": selected_action_mode,
+        "seed": selected_seed,
+        "period": selected_period,
+    }
+    selected_env = _filter_diagnostic_frame(base, selections)
+    if selected_env.empty:
+        st.warning("No trade diagnostics match the selected filters.")
+        return
+    selected_env = _diagnostic_sort(selected_env)
+    run_ids = _diagnostic_options(selected_env, "run_id")
+    selections["run_id"] = run_ids[0] if run_ids else ""
+
+    selected_q = _filter_diagnostic_frame(q_values, selections) if not q_values.empty else pd.DataFrame()
+    merged, dropped_rows, missing_q_matches = _merge_q_value_diagnostics(selected_env, selected_q)
+    if dropped_rows:
+        st.warning(f"Warning: {dropped_rows} rows were dropped during diagnostic merge.")
+    if q_values.empty:
+        st.warning("Q-value diagnostics not found. Q-value decision view is unavailable.")
+
+    benchmark_selections = {key: value for key, value in selections.items() if key not in {"experiment", "period", "run_id"}}
+    benchmark_curve = _filter_diagnostic_frame(portfolio_curves, benchmark_selections)
+    if not benchmark_curve.empty and "experiment" in benchmark_curve.columns:
+        benchmark_curve = benchmark_curve[benchmark_curve["experiment"].astype(str) == "buy_and_hold"].copy()
+
+    _render_trade_summary_cards(merged, benchmark_curve)
+
+    if selected_chart_mode == "Portfolio + Actions":
+        _render_portfolio_actions_chart(selected_env, benchmark_curve)
+    elif selected_chart_mode == "Exposure + Actions":
+        _render_exposure_actions_chart(selected_env)
+    elif selected_chart_mode == "Q-values":
+        _render_q_value_decision_chart(merged, selected_action_mode)
+    elif selected_chart_mode == "Reward Breakdown":
+        _render_reward_breakdown_chart(reward_diagnostics, selections)
+    else:
+        _render_trade_table(selected_env, selections)
+
+    with st.expander("Trade Behavior Data Source Debug", expanded=False):
+        loaded_rows = []
+        if source_bundle is not None:
+            for item in getattr(source_bundle, "loaded_files", []):
+                loaded_rows.append(
+                    {
+                        "file_name": item.filename,
+                        "path": item.path,
+                        "row_count": item.row_count,
+                        "detected_target_symbol_values": ", ".join(item.target_symbols),
+                    }
+                )
+            checked = getattr(source_bundle, "checked_paths", [])
+            st.markdown("Checked paths")
+            st.dataframe(pd.DataFrame({"path": checked}), use_container_width=True, hide_index=True)
+        st.markdown("Files loaded")
+        st.dataframe(pd.DataFrame(loaded_rows), use_container_width=True, hide_index=True)
+        debug_rows = [
+            {"item": "selected_target_symbol", "value": selected_target_symbol},
+            {"item": "selected_run_id_count", "value": selected_env["run_id"].nunique() if "run_id" in selected_env.columns else 0},
+            {"item": "env_dynamics_diagnostics.csv_found", "value": not env_dynamics.empty},
+            {"item": "q_value_diagnostics.csv_found", "value": not q_values.empty},
+            {"item": "reward_diagnostics.csv_found", "value": not reward_diagnostics.empty},
+            {"item": "merge_row_drops", "value": dropped_rows},
+            {"item": "q_value_missing_matches", "value": missing_q_matches},
+        ]
+        required_env_cols = ["run_id", "target_symbol", "experiment", "seed", "period", "step", "mapped_action_label"]
+        missing_required = [col for col in required_env_cols if col not in env_dynamics.columns]
+        debug_rows.append({"item": "missing_required_env_columns", "value": ", ".join(missing_required) if missing_required else ""})
+        st.dataframe(pd.DataFrame(debug_rows), use_container_width=True, hide_index=True)
+
+
+def render_model_upgrade_diagnostics(symbol: str, stock_bundle: dict[str, object] | None = None) -> None:
     st.subheader("Model Upgrade Diagnostics")
-    summary = safe_read_csv(MODEL_UPGRADE_DIR / "model_upgrade_summary.csv")
-    seed_metrics = safe_read_csv(MODEL_UPGRADE_DIR / "seed_level_metrics.csv")
-    actions = safe_read_csv(MODEL_UPGRADE_DIR / "action_distribution_diagnostics.csv")
-    env_dynamics = safe_read_csv(MODEL_UPGRADE_DIR / "env_dynamics_diagnostics.csv")
-    exploration = safe_read_csv(MODEL_UPGRADE_DIR / "exploration_diagnostics.csv")
-    portfolio = safe_read_csv(MODEL_UPGRADE_DIR / "portfolio_curves.csv")
-    q_values = safe_read_csv(MODEL_UPGRADE_DIR / "q_value_diagnostics.csv")
-    reward_compare = safe_read_csv(MODEL_UPGRADE_DIR / "reward_variant_comparison.csv")
-    state_features = safe_read_csv(MODEL_UPGRADE_DIR / "state_feature_diagnostics.csv")
-
-    if summary.empty or seed_metrics.empty:
-        st.info("No model upgrade results found. Run scripts/run_model_upgrade_grid.py first.")
+    diagnostics_bundle = discover_model_upgrade_diagnostics()
+    if not diagnostics_bundle.found_any:
+        st.info("No model upgrade diagnostics found in outputs/model_upgrade or per-stock output folders.")
+        with st.expander("Trade Behavior Data Source Debug", expanded=False):
+            st.dataframe(pd.DataFrame({"checked_path": diagnostics_bundle.checked_paths}), use_container_width=True, hide_index=True)
         return
 
-    code = normalize_symbol_for_path(symbol)
-    if "target_symbol" in summary.columns:
-        summary = summary[summary["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in seed_metrics.columns:
-        seed_metrics = seed_metrics[seed_metrics["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in actions.columns:
-        actions = actions[actions["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in env_dynamics.columns:
-        env_dynamics = env_dynamics[env_dynamics["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in exploration.columns:
-        exploration = exploration[exploration["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in portfolio.columns:
-        portfolio = portfolio[portfolio["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in q_values.columns:
-        q_values = q_values[q_values["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-    if "target_symbol" in reward_compare.columns:
-        reward_compare = reward_compare[reward_compare["target_symbol"].astype(str).apply(normalize_symbol_for_path) == code].copy()
-
-    if summary.empty or seed_metrics.empty:
-        st.info("No model upgrade results found. Run scripts/run_model_upgrade_grid.py first.")
+    detected_targets = diagnostics_bundle.target_symbols
+    current_symbol = normalize_symbol_for_path(symbol)
+    if current_symbol not in detected_targets:
+        st.info(_target_company_command(current_symbol, stock_bundle or {}))
+        with st.expander("Trade Behavior Data Source Debug", expanded=False):
+            st.markdown("Checked paths")
+            st.dataframe(pd.DataFrame({"checked_path": diagnostics_bundle.checked_paths}), use_container_width=True, hide_index=True)
+            st.markdown("Files loaded")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "file_name": item.filename,
+                            "path": item.path,
+                            "row_count": item.row_count,
+                            "detected_target_symbol_values": ", ".join(item.target_symbols),
+                        }
+                        for item in diagnostics_bundle.loaded_files
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
         return
+    target_index = detected_targets.index(current_symbol) if current_symbol in detected_targets else 0
+    selected_target = st.selectbox("model-upgrade target_symbol", detected_targets, index=target_index, key="model_upgrade_target_symbol")
+
+    def _target_filter(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "target_symbol" not in frame.columns:
+            return frame.copy()
+        return frame[frame["target_symbol"].astype(str).apply(normalize_symbol_for_path) == selected_target].copy()
+
+    summary = _target_filter(diagnostics_bundle.get("model_upgrade_summary.csv"))
+    seed_metrics = _target_filter(diagnostics_bundle.get("seed_level_metrics.csv"))
+    actions = _target_filter(diagnostics_bundle.get("action_distribution_diagnostics.csv"))
+    env_dynamics = _target_filter(diagnostics_bundle.get("env_dynamics_diagnostics.csv"))
+    exploration = _target_filter(diagnostics_bundle.get("exploration_diagnostics.csv"))
+    portfolio = _target_filter(diagnostics_bundle.get("portfolio_curves.csv"))
+    q_values = _target_filter(diagnostics_bundle.get("q_value_diagnostics.csv"))
+    reward_diagnostics = _target_filter(diagnostics_bundle.get("reward_diagnostics.csv"))
+    reward_compare = _target_filter(diagnostics_bundle.get("reward_variant_comparison.csv"))
+    state_features = _target_filter(diagnostics_bundle.get("state_feature_diagnostics.csv"))
+
+    if seed_metrics.empty and summary.empty:
+        st.info("No model upgrade seed/summary rows found for this target; trade diagnostics may still be available below.")
 
     selector_cols = st.columns(6)
-    run_options = sorted(seed_metrics["run_mode"].dropna().astype(str).unique().tolist()) if "run_mode" in seed_metrics.columns else []
-    action_mode_options = sorted(seed_metrics["action_mode"].dropna().astype(str).unique().tolist()) if "action_mode" in seed_metrics.columns else []
-    model_options = sorted(seed_metrics["model_variant"].dropna().astype(str).unique().tolist()) if "model_variant" in seed_metrics.columns else []
-    reward_options = sorted(seed_metrics["reward_variant"].dropna().astype(str).unique().tolist()) if "reward_variant" in seed_metrics.columns else []
-    state_options = sorted(seed_metrics["state_feature_mode"].dropna().astype(str).unique().tolist()) if "state_feature_mode" in seed_metrics.columns else []
+    filter_source = seed_metrics if not seed_metrics.empty else env_dynamics
+    run_options = sorted(filter_source["run_mode"].dropna().astype(str).unique().tolist()) if "run_mode" in filter_source.columns else []
+    action_mode_options = sorted(filter_source["action_mode"].dropna().astype(str).unique().tolist()) if "action_mode" in filter_source.columns else []
+    model_options = sorted(filter_source["model_variant"].dropna().astype(str).unique().tolist()) if "model_variant" in filter_source.columns else []
+    reward_options = sorted(filter_source["reward_variant"].dropna().astype(str).unique().tolist()) if "reward_variant" in filter_source.columns else []
+    state_options = sorted(filter_source["state_feature_mode"].dropna().astype(str).unique().tolist()) if "state_feature_mode" in filter_source.columns else []
     selected_run_mode = selector_cols[0].selectbox("run_mode", run_options, index=0) if run_options else ""
     selected_action_mode = selector_cols[1].selectbox("action_mode", action_mode_options, index=0) if action_mode_options else ""
     selected_model = selector_cols[2].selectbox("model_variant", model_options, index=0) if model_options else ""
     selected_reward = selector_cols[3].selectbox("reward_variant", reward_options, index=0) if reward_options else ""
     selected_state = selector_cols[4].selectbox("state_feature_mode", state_options, index=0) if state_options else ""
-    episode_options = sorted(seed_metrics["episodes"].dropna().astype(str).unique().tolist()) if "episodes" in seed_metrics.columns else []
+    episode_options = sorted(filter_source["episodes"].dropna().astype(str).unique().tolist()) if "episodes" in filter_source.columns else []
     selected_episodes = selector_cols[5].selectbox("episodes", episode_options, index=0) if episode_options else ""
 
     if selected_run_mode == "quick_test":
@@ -2420,14 +3080,51 @@ def render_model_upgrade_diagnostics(symbol: str) -> None:
         q_summary["experiment"] = q_summary["experiment"].astype(str).map(_display_experiment_name).fillna(q_summary["experiment"].astype(str))
         st.dataframe(q_summary, use_container_width=True, hide_index=True)
 
+    render_trade_by_trade_dqn_behavior(
+        env_dynamics=env_dynamics,
+        q_values=q_values,
+        reward_diagnostics=reward_diagnostics,
+        seed_metrics=seed_metrics,
+        actions=actions,
+        portfolio_curves=portfolio,
+        source_bundle=diagnostics_bundle,
+        selected_target_symbol=selected_target,
+    )
+
     st.markdown("#### model_upgrade_summary.csv")
-    st.dataframe(filtered_summary, use_container_width=True, hide_index=True)
+    if filtered_summary.empty:
+        st.info("model_upgrade_summary.csv is missing or has no rows for this target.")
+    else:
+        st.dataframe(filtered_summary, use_container_width=True, hide_index=True)
     if not reward_compare.empty:
         with st.expander("reward_variant_comparison.csv", expanded=False):
             st.dataframe(_filter(reward_compare), use_container_width=True, hide_index=True)
     if not state_features.empty:
         with st.expander("state_feature_diagnostics.csv", expanded=False):
             st.dataframe(state_features.head(500), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Diagnostic README / Report")
+    readme_path = MODEL_UPGRADE_DIR / "README_diagnostics.md"
+    compact_path = MODEL_UPGRADE_DIR / "CHATGPT_DIAGNOSTIC_SUMMARY.md"
+    report_dir = MODEL_UPGRADE_DIR / "diagnostic_reports"
+    if not readme_path.exists():
+        st.info("Diagnostic README not found. Run model-upgrade grid or generate_model_upgrade_diagnostic_readme.py first.")
+    else:
+        readme_text = readme_path.read_text(encoding="utf-8")
+        st.text_area("README_diagnostics.md preview", readme_text[:12000], height=260)
+        st.download_button("Download README_diagnostics.md", readme_text.encode("utf-8"), file_name="README_diagnostics.md", mime="text/markdown", use_container_width=True)
+    if compact_path.exists():
+        compact_text = compact_path.read_text(encoding="utf-8")
+        st.text_area("CHATGPT_DIAGNOSTIC_SUMMARY.md preview", compact_text[:8000], height=220)
+        st.download_button("Download CHATGPT_DIAGNOSTIC_SUMMARY.md", compact_text.encode("utf-8"), file_name="CHATGPT_DIAGNOSTIC_SUMMARY.md", mime="text/markdown", use_container_width=True)
+    if report_dir.exists():
+        reports = sorted(report_dir.glob("*.md"), reverse=True)
+        if reports:
+            labels = [path.name for path in reports]
+            selected_report = st.selectbox("Timestamped diagnostic report", labels, index=0)
+            report_path = reports[labels.index(selected_report)]
+            report_text = report_path.read_text(encoding="utf-8")
+            st.download_button("Download timestamped diagnostic report", report_text.encode("utf-8"), file_name=report_path.name, mime="text/markdown", use_container_width=True)
 
 
 def _render_box_or_table(frame: pd.DataFrame, metric: str) -> None:
@@ -2456,6 +3153,7 @@ def _render_box_or_table(frame: pd.DataFrame, metric: str) -> None:
 
 
 def render_result_review_dashboard(symbol: str) -> None:
+    _reset_plotly_key_counter()
     bundle = load_stock_bundle(symbol)
     tabs = st.tabs(["Single Stock Basics", "Scraping Density", "Peer Cross Analysis", "Market Impact Analysis", "Model Upgrade Diagnostics"])
     with tabs[0]:
@@ -2467,7 +3165,7 @@ def render_result_review_dashboard(symbol: str) -> None:
     with tabs[3]:
         render_market_impact_analysis_for_symbol(symbol, bundle)
     with tabs[4]:
-        render_model_upgrade_diagnostics(symbol)
+        render_model_upgrade_diagnostics(symbol, bundle)
 
 
 def _figure_to_html(fig: go.Figure, *, include_plotlyjs: bool = False) -> str:
