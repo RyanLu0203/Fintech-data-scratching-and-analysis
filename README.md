@@ -1,43 +1,41 @@
 # NLP-Driven Reinforcement Learning Trading Platform
 
-本项目是一个面向金融科技课程项目的端到端实验平台，用于研究：
+本项目是一个面向金融科技课程与论文写作的端到端实验平台，用于研究：
 
 ```text
-raw financial news + OHLCV market data
--> peer-trained NLP signal
--> DQN trading decision
--> evaluation, dashboard, and report artifacts
+financial news + OHLCV market data
+-> peer-trained NLP sentiment / market-impact signals
+-> DQN trading state
+-> model-upgrade DQN trading decisions
+-> diagnostics, dashboard, and report-ready artifacts
 ```
 
-本仓库实现的实验是：
+核心研究问题是：
 
 ```text
-Peer NLP Transfer Trading Experiment
+在严格排除目标股票自身新闻训练的前提下，
+由 peer stocks 训练得到的 NLP signals
+是否能增强目标股票 DQN 交易模型的表现？
 ```
 
-核心问题是：
+当前 dashboard 和报告主结果使用 **latest model-upgrade experiment**，即：
 
 ```text
-当目标股票自己的 NLP 训练被严格排除时，
-由同板块 peer stocks 训练出来的 NLP signal，
-是否能提升目标股票 DQN 交易模型的测试期表现？
+outputs/model_upgrade/*.csv
 ```
 
-实验包含两个 peer-trained NLP 信号：
+旧的 official DQN 输出仍可用于追溯，但不再作为主 dashboard 曲线、主对比表或论文结果解释的数据源。
 
-```text
-Experiment A: sector peer sentiment NLP
-Experiment B: sector peer market-impact NLP
-```
+---
 
-## Experimental Logic
+## 1. Research Design
 
-以目标股票 `A` 为例，例如：
+以目标股票 `A` 为例：
 
 ```text
 target stock A = 002475 立讯精密
 sector = electronics
-peer stocks = 同板块除 A 以外的股票
+peer stocks = same-sector stocks excluding target A
 ```
 
 目标股票永远不进入自己的 NLP 训练语料：
@@ -47,80 +45,55 @@ target stock news is excluded from NLP training
 target stock future returns are excluded from NLP labelling
 ```
 
-当前正式比较组为：
+实验比较组：
 
-| Group | Strategy | DQN state |
+| Role | Experiment | Meaning |
 |---|---|---|
-| Benchmark | buy_and_hold | no DQN |
-| Group 0 | dqn_without_nlp | market features + zero NLP signal |
-| Group 1 | dqn_with_sector_sentiment_nlp | market features + sector peer sentiment |
-| Group 2 | dqn_with_sector_impact_nlp | market features + sector peer market-impact |
-| Optional | dqn_with_marketwide_sentiment_nlp | market features + marketwide peer sentiment |
-| Optional | dqn_with_marketwide_impact_nlp | market features + marketwide peer market-impact |
+| Benchmark | buy_and_hold | 只作为 benchmark，不计入 DQN 组 |
+| Control | dqn_without_nlp | market features + zero NLP signal |
+| NLP group | dqn_with_sector_sentiment_nlp | sector peer sentiment signal |
+| NLP group | dqn_with_sector_impact_nlp | sector peer market-impact signal |
+| Add-on group | dqn_with_marketwide_sentiment_nlp | marketwide peer sentiment signal |
+| Add-on group | dqn_with_marketwide_impact_nlp | marketwide peer market-impact signal |
 
-默认 dashboard 使用 `sector_only`，也就是只跑同板块训练集。`sector_plus_marketwide` 是额外 benchmark，会更慢。
-
-## Why Peer NLP
-
-本项目遇到的现实问题是：很多 A 股新闻接口在远端历史区间的信息密度很低，近端约 30 到 80 个交易日新闻明显更密集。
-
-因此，直接用目标股票自己的长期新闻训练 NLP 会有两个问题：
-
-1. 远端新闻稀疏，NLP 信号不稳定。
-2. 如果用目标股票自己的近端新闻训练再测试，容易形成 self-training / self-testing contamination。
-
-所以当前实验改为：
+论文解释时应注意：
 
 ```text
-同板块其他股票的近端高密度新闻
--> train peer NLP
--> score target stock A 的近端高密度新闻
--> sentiment or impact signal enters DQN state
--> test whether DQN improves
+trade activity alone does not prove NLP value
+NLP improvement should be claimed only when no-NLP baseline comparisons support it
+medium-test is diagnostic; full-grid is stronger evidence
 ```
 
-这使实验更接近 transfer learning：
+---
+
+## 2. End-To-End Pipeline
+
+完整流程：
 
 ```text
-learn from peer stocks
-transfer to held-out target stock
+1. User inputs target symbol and company name
+2. Resolve target sector from stock-sector mapping
+3. Check local stock cache
+4. Fetch missing market/news data through existing scraper
+5. Save integrated finance_text CSV under outputs/stocks/<symbol>/data/
+6. Identify same-sector peers and optional marketwide peers
+7. Exclude target stock from all peer NLP training corpora
+8. Build peer sentiment corpus
+9. Build peer market-impact labelled corpus
+10. Score held-out target stock news
+11. Aggregate daily NLP signals
+12. Merge market features + NLP features
+13. Run model-upgrade DQN groups
+14. Record portfolio curves, action counts, exposure, env dynamics, and Q-values
+15. Generate dashboard visualizations
+16. Generate diagnostic README and compact analysis summary
 ```
 
-## End-To-End Workflow
-
-![Experiment workflow](docs/experiment_workflow.svg)
-
-完整流程如下：
-
-```text
-1. User inputs target symbol
-2. Resolve company name and sector
-3. Load or fetch target market/news data
-4. Detect target high-information-density window
-5. Identify same-sector peer stocks
-6. Load or fetch peer market/news data
-7. Build sector peer sentiment corpus
-8. Build sector peer market-impact labelled corpus
-9. Train or fit peer sentiment NLP
-10. Train or fit peer market-impact NLP
-11. Score target stock news
-12. Aggregate daily target signals
-13. Build lagged DQN features
-14. Pretrain shared market-only DQN backbone
-15. Fine-tune each DQN group with its own NLP signal
-16. Evaluate each group on the same holdout window
-17. Compute trading metrics
-18. Generate figures and dashboard outputs
-19. Export report HTML and CSV bundle
-```
-
-Dashboard 里每一步会显示为：
+Dashboard 中会显示每个阶段的状态：
 
 ```text
 pending -> running -> completed / skipped / failed
 ```
-
-## Data Windows
 
 默认研究区间：
 
@@ -129,160 +102,184 @@ DATA_START_DATE = 2024-01-01
 DATA_END_DATE   = 2026-04-30
 ```
 
-对目标股票，系统先检测高信息密度窗口：
+---
+
+## 3. Stock Crawling And Cache Logic
+
+本项目使用已经集成的 A 股 scraper 逻辑。入口由 dashboard 或 CLI 调用，不需要手工直接操作底层 scraper。
+
+主缓存目录：
 
 ```text
-high-density window = news cumulative distribution reaches recent dense segment
+outputs/stocks/<symbol>/data/
 ```
 
-时间上分为三段：
+每只股票维护一个 master timeline：
 
 ```text
-market-learning window:
-    高密度窗口之前的目标股票市场数据
-
-high-density fine-tune window:
-    高密度窗口前半段
-
-high-density holdout window:
-    高密度窗口后半段
+outputs/stocks/<symbol>/data/<symbol>_finance_text_master.csv
 ```
 
-在代码输出中对应：
+请求某只股票、某个日期区间时，系统先检查本地缓存：
 
 ```text
-outputs/stocks/<symbol>/reports/market_impact_train_eval_windows.csv
+if master covers requested date range:
+    reuse local master
+    slice requested interval
+else:
+    fetch missing interval
+    merge into master
+    deduplicate
+    materialize requested interval
 ```
 
-## Mathematical Formulation
-
-### 1. Market Data
-
-目标股票在交易日 `t` 的 OHLCV 为：
+这意味着：
 
 ```text
-M_t = (O_t, H_t, L_t, C_t, V_t)
+local cache first
+network scraping only when local data is missing
+same stock data is not repeatedly duplicated
 ```
 
-其中：
+旧目录：
 
 ```text
-O_t = open price
-H_t = high price
-L_t = low price
-C_t = close price
-V_t = volume
+data/integrated/
 ```
 
-日收益率定义为：
+只作为 legacy fallback。当前正式数据判断应以：
 
 ```text
-r_t = (C_t - C_{t-1}) / C_{t-1}
+outputs/stocks/<symbol>/data/
 ```
 
-未来 `h` 日收益率：
+为准。
+
+---
+
+## 4. Data Storage Layer
+
+本项目有两层存储。
+
+第一层是主要审计产物：
 
 ```text
-R_{t,h} = (C_{t+h} - C_t) / C_t
+CSV / Markdown / HTML files under outputs/
 ```
 
-### 2. Technical Indicators
+这些文件是 dashboard、论文表格、结果分析和复现实验的主要依据。
 
-移动平均：
+第二层是可选 SQLite 同步存储：
 
 ```text
-MA_k(t) = (1 / k) * sum_{i=0}^{k-1} C_{t-i}
+outputs/database/trading_platform.db
 ```
 
-本项目使用：
+SQLite schema 位于：
 
 ```text
-MA50(t), MA200(t)
+src/storage/schema.sql
 ```
 
-RSI 使用标准相对强弱指标：
+当前核心表：
 
 ```text
-RSI(t) = 100 - 100 / (1 + RS(t))
-RS(t) = AvgGain_n(t) / AvgLoss_n(t)
+news_table
+market_table
+sentiment_table
+nlp_signal_table
+experiment_metrics_table
+trading_log_table
 ```
 
-MACD：
+兼容 views：
 
 ```text
-MACD(t) = EMA_12(t) - EMA_26(t) 
-Signal(t) = EMA_9(MACD(t))
+news_articles
+market_bars
+sentiment_signals
+nlp_signals
+trade_logs
 ```
 
-在 DQN 中使用的所有市场特征都会滞后一日：
+SQLite 用途：
 
 ```text
-feature_for_action_t = feature_observed_at_{t-1}
+persist core news / market / NLP signal / metric / trade-log data
 ```
 
-这样保证：
+重要限制：
 
 ```text
-action at t uses information available before t
+latest model-upgrade diagnostics are stored primarily as CSV / Markdown / HTML artifacts
 ```
 
-### 3. Peer Sentiment NLP
+也就是说，当前项目具备核心 SQLite 架构，但最新 model-upgrade 的完整诊断体系仍以文件产物为主。
 
-对 peer stock `j` 的新闻文本：
+---
+
+## 5. Peer NLP Signal Generation
+
+### 5.1 Target Exclusion
+
+目标股票 `A` 的新闻不会进入自己的 peer NLP 训练：
 
 ```text
-x_{j,i} = title_{j,i} + content_{j,i}
+target A news not used for training
+target A future returns not used for market-impact labels
 ```
 
-Peer sentiment model 输出三类概率：
+Peer stocks 来自：
+
+```text
+same-sector peers excluding A
+optional marketwide peers excluding A
+```
+
+如果本地 peer 数据不足，dashboard 可触发补抓：
+
+```text
+allow_fetch_missing_sector_peers = true
+```
+
+### 5.2 Sentiment Signal
+
+对 peer 新闻文本：
+
+```text
+x = title + content
+```
+
+Peer sentiment scorer 输出：
 
 ```text
 P(pos | x), P(neu | x), P(neg | x)
 ```
 
-数值 sentiment score 定义为：
+sentiment score：
 
 ```text
 sentiment_score(x) = P(pos | x) - P(neg | x)
 ```
 
-对于目标股票 `A` 在交易日 `t` 的新闻集合：
-
-```text
-N_A(t) = {x_{A,i}: news i mapped to trading day t}
-```
-
-日度 sector sentiment：
+目标股票日度 sector sentiment：
 
 ```text
 S_sector(t) =
-    0, if |N_A(t)| = 0
-    (1 / |N_A(t)|) * sum_{x in N_A(t)} sentiment_score_sector(x), otherwise
+    0, if target has no mapped news on day t
+    mean(sentiment_score_sector(x)) for target news mapped to day t
 ```
 
-同时记录：
+Marketwide sentiment 同理，只是 peer corpus 变为跨板块 marketwide peers。
+
+### 5.3 Market-Impact Signal
+
+Market-impact NLP 不直接问文本语气，而是用 peer 股票未来收益构造 pseudo label。
+
+对 peer stock `j` 的新闻 `x_{j,i}`，映射到交易日 `tau(i)` 后：
 
 ```text
-news_available(t) = 1 if |N_A(t)| > 0 else 0
-```
-
-无新闻日的 `0` 表示 no signal，不等价于 neutral news。
-
-### 4. Market-Impact NLP
-
-Market-impact NLP 的思想是：
-
-```text
-新闻语气不一定等于交易信号。
-正面新闻不一定上涨，负面新闻不一定下跌。
-```
-
-因此本项目构造 peer news 的未来收益伪标签。
-
-对 peer stock `j` 的新闻 `x_{j,i}`，先映射到交易日 `tau(i)`，然后计算：
-
-```text
-R_{j, tau(i), h} = (C_{j, tau(i)+h} - C_{j, tau(i)}) / C_{j, tau(i)}
+R_{j,tau(i),h} = (C_{j,tau(i)+h} - C_{j,tau(i)}) / C_{j,tau(i)}
 ```
 
 默认：
@@ -293,26 +290,12 @@ positive_threshold = 0.015
 negative_threshold = -0.015
 ```
 
-伪标签：
+标签：
 
 ```text
-y_{j,i} =
-    bullish_impact, if R_{j,tau(i),3} > 0.015
-    bearish_impact, if R_{j,tau(i),3} < -0.015
-    neutral_impact, otherwise
-```
-
-重要限制：
-
-```text
-这些 label 只在 peer corpus 内创建。
-目标股票 A 的未来收益绝不用于训练 A 的 NLP scorer。
-```
-
-训练 market-impact classifier：
-
-```text
-f_impact(x) -> [P(bullish), P(neutral), P(bearish)]
+bullish_impact, if R > 0.015
+bearish_impact, if R < -0.015
+neutral_impact, otherwise
 ```
 
 impact score：
@@ -321,257 +304,168 @@ impact score：
 impact_score(x) = P(bullish | x) - P(bearish | x)
 ```
 
-目标股票日度 impact signal：
+目标股票的未来收益不参与目标股票自己的 NLP label 或 scorer 训练。
+
+---
+
+## 6. DQN Experiment: Latest Model-Upgrade Version
+
+旧 official DQN 使用 `discrete_trade` 三动作环境：
 
 ```text
-I_sector(t) =
-    0, if |N_A(t)| = 0
-    (1 / |N_A(t)|) * sum_{x in N_A(t)} impact_score_sector(x), otherwise
-```
-
-### 5. News-To-Trading-Date Alignment
-
-如果新闻没有明确 intraday timestamp，本项目采用保守规则：
-
-```text
-calendar news date d -> next valid trading date
-```
-
-也就是说：
-
-```text
-news from d becomes tradable at t >= next_trading_day(d)
-```
-
-如果有 timestamp，则可扩展为：
-
-```text
-pre-market news -> same trading day
-after-market news -> next trading day
-```
-
-最终进入 DQN 的 NLP signal 仍然滞后一日：
-
-```text
-NLP_state_t = NLP_signal_{t-1}
-```
-
-### 6. Unified DQN State
-
-为了避免不同实验组 state 维度不同，所有 DQN group 统一使用 8 维 state：
-
-```text
-s_t = [
-    price_t,
-    MA50_t,
-    MA200_t,
-    RSI_t,
-    MACD_t,
-    position_t,
-    cash_t,
-    nlp_signal_score_t
-]
-```
-
-其中：
-
-```text
-price_t, MA50_t, MA200_t, RSI_t, MACD_t
-```
-
-都是滞后后的市场特征。
-
-不同组唯一差别是最后一列：
-
-```text
-dqn_without_nlp:
-    nlp_signal_score_t = 0
-
-dqn_with_sector_sentiment_nlp:
-    nlp_signal_score_t = S_sector(t-1)
-
-dqn_with_sector_impact_nlp:
-    nlp_signal_score_t = I_sector(t-1)
-
-dqn_with_marketwide_sentiment_nlp:
-    nlp_signal_score_t = S_marketwide(t-1)
-
-dqn_with_marketwide_impact_nlp:
-    nlp_signal_score_t = I_marketwide(t-1)
-```
-
-这保证：
-
-```text
-same DQN architecture
-same state dimension
-same train/test window
-same reward function
-same seeds
-only NLP signal source changes
-```
-
-### 7. Two-Stage DQN Training
-
-为避免只用近端几十天从零训练 DQN，本项目使用两段式训练：
-
-#### Stage 1: Market-Only Pretraining
-
-在远端 market-learning window 上训练共同 DQN backbone：
-
-```text
-s_t^pretrain = [
-    price_t, MA50_t, MA200_t, RSI_t, MACD_t, position_t, cash_t, 0
-]
-```
-
-得到参数：
-
-```text
-theta_0
-```
-
-#### Stage 2: Group-Specific Fine-Tuning
-
-每个实验组从同一个 `theta_0` 复制：
-
-```text
-theta_g(0) = theta_0
-```
-
-然后在目标股票近端 high-density fine-tune window 上训练：
-
-```text
-theta_g = FineTune(theta_0, D_g)
-```
-
-其中 `D_g` 的最后一列由 group 决定：
-
-```text
-0, sector sentiment, sector impact, marketwide sentiment, marketwide impact
-```
-
-#### Stage 3: Holdout Evaluation
-
-所有 group 在同一个 high-density holdout window 测试：
-
-```text
-Evaluate(theta_g, D_test)
-```
-
-最终比较：
-
-```text
-Performance(dqn_with_signal) - Performance(dqn_without_nlp)
-```
-
-### 8. Trading Environment
-
-动作空间：
-
-```text
-a_t in {0, 1, 2}
 0 = Hold
 1 = Buy
 2 = Sell
 ```
 
-现金与持仓：
+它在实验中出现过明显问题：
 
 ```text
-cash_t
-shares_t
+too many Hold actions
+flat or nearly flat portfolio curves
+low exposure
+hard to interpret whether NLP changed decisions
 ```
 
-组合价值：
+因此当前主实验使用 model-upgrade 版本。
+
+### 6.1 State Feature Mode
+
+旧 official baseline 保留 8D raw state 用于追溯：
 
 ```text
-V_t = cash_t + shares_t * price_t
+official_8d = [
+    price,
+    MA50,
+    MA200,
+    RSI,
+    MACD,
+    position,
+    cash,
+    nlp_signal_score
+]
 ```
 
-交易成本：
+当前主实验推荐：
 
 ```text
-cost_t = transaction_cost_rate * traded_value_t
+state_feature_mode = normalized_plus
 ```
 
-如果 Buy 或 Sell 执行，扣除交易成本；Hold 不产生交易成本。
+特征：
 
-### 9. Reward Function
+```text
+daily_return
+price_ma50_gap
+price_ma200_gap
+ma50_ma200_gap
+RSI_normalized
+MACD_zscore
+position_ratio
+cash_ratio
+nlp_signal_score
+abs_nlp_signal
+nlp_signal_3day_mean
+nlp_signal_change
+```
 
-当前主 reward 是 portfolio return：
+归一化统计量只从训练窗口计算，再应用到测试窗口，避免 test leakage。
+
+### 6.2 Action Mode
+
+当前 model-upgrade 默认：
+
+```text
+action_mode = target_position
+```
+
+动作含义：
+
+```text
+action0 = 0% exposure
+action1 = 25% exposure
+action2 = 50% exposure
+action3 = 75% exposure
+action4 = 100% exposure
+```
+
+执行逻辑：
+
+```text
+portfolio_before = cash_before + shares_before * price_t
+current_stock_value = shares_before * price_t
+target_stock_value = target_exposure * portfolio_before
+trade_value = target_stock_value - current_stock_value
+```
+
+如果 `trade_value > 0`，买入到目标仓位；如果 `trade_value < 0`，卖出到目标仓位。系统不允许负现金或负持仓。
+
+Dashboard 仍把动作映射成：
+
+```text
+target_exposure > current_exposure_before + 0.01 -> Buy
+target_exposure < current_exposure_before - 0.01 -> Sell
+otherwise -> Hold
+```
+
+### 6.3 DQN Variants
+
+支持：
+
+```text
+vanilla_dqn
+double_dqn
+dueling_dqn
+double_dueling_dqn
+```
+
+Double DQN target：
+
+```text
+a_star = argmax_a Q_online(s_{t+1}, a)
+y_t = r_t + gamma * Q_target(s_{t+1}, a_star)
+```
+
+Dueling DQN：
+
+```text
+Q(s,a) = V(s) + A(s,a) - mean_a A(s,a)
+```
+
+默认训练设置：
+
+```text
+loss_type = huber
+grad_clip_norm = 1.0
+epsilon_start = 1.0
+epsilon_end = 0.10
+epsilon_decay_ratio = 0.85
+```
+
+### 6.4 Reward Variants
+
+支持：
+
+```text
+one_day_return
+three_day_return
+five_day_return
+risk_adjusted_return
+```
+
+默认 next-day portfolio return：
 
 ```text
 reward_t = (V_{t+1} - V_t) / V_t
 ```
 
-如果需要更稳健，可切换到带惩罚项的 reward：
+训练期可启用 flat-position penalty，避免模型长期空仓；早期训练可启用 trade exploration bonus，促进 Buy/Sell 探索。
 
-```text
-reward_t = portfolio_return_t - lambda_turnover * turnover_t
-```
+---
 
-或：
+## 7. Evaluation Metrics
 
-```text
-reward_t = portfolio_return_t - lambda_drawdown * drawdown_t
-```
-
-但正式主实验默认保持：
-
-```text
-reward_mode = portfolio_return
-```
-
-### 10. DQN Update
-
-DQN 学习 action-value function：
-
-```text
-Q(s_t, a_t; theta)
-```
-
-TD target：
-
-```text
-y_t = r_t + gamma * max_a' Q_target(s_{t+1}, a'; theta^-)
-```
-
-Loss：
-
-```text
-L(theta) = E[(y_t - Q(s_t, a_t; theta))^2]
-```
-
-经验回放 buffer：
-
-```text
-ReplayBuffer = {(s_t, a_t, r_t, s_{t+1}, done_t)}
-```
-
-探索策略：
-
-```text
-epsilon-greedy
-```
-
-```text
-a_t =
-    random action, with probability epsilon
-    argmax_a Q(s_t, a; theta), otherwise
-```
-
-目标网络定期同步：
-
-```text
-theta^- <- theta
-```
-
-本项目从 scratch 使用 PyTorch 实现 DQN，不使用 Stable-Baselines3。
-
-## Evaluation Metrics
-
-对每个 strategy 计算：
+每个 DQN group 会记录：
 
 ```text
 final_equity
@@ -579,45 +473,24 @@ cumulative_return
 annualized_return
 annualized_volatility
 sharpe_ratio
-sortino_ratio
-calmar_ratio
 max_drawdown
 number_of_trades
 win_rate
 exposure_ratio
+average_exposure
 turnover
-average_holding_period
-action_entropy
+unique_portfolio_values
+hold_ratio
+action_buy_count
+action_sell_count
+action_hold_count
+q_value_margin
 ```
 
 累计收益：
 
 ```text
 cumulative_return = V_T / V_0 - 1
-```
-
-年化收益：
-
-```text
-annualized_return = (V_T / V_0)^(252 / N) - 1
-```
-
-年化波动率：
-
-```text
-annualized_volatility = std(r_t) * sqrt(252)
-```
-
-Sharpe Ratio：
-
-```text
-Sharpe = mean(r_t - r_f) / std(r_t) * sqrt(252)
-```
-
-Sortino Ratio：
-
-```text
-Sortino = mean(r_t - r_f) / downside_std(r_t) * sqrt(252)
 ```
 
 最大回撤：
@@ -627,118 +500,68 @@ Drawdown_t = V_t / max_{k<=t}(V_k) - 1
 MaxDrawdown = min_t Drawdown_t
 ```
 
-展示时通常使用正数：
+NLP 组是否优于 no-NLP control，应优先看同股票、同 run mode、同 model variant、同 reward、同 state/action mode 下的对比。
 
-```text
-MaxDrawdownDisplayed = abs(MaxDrawdown)
-```
+---
 
-NLP 效果：
+## 8. Main Output Files
 
-```text
-sector_sentiment_effect =
-    final_equity(dqn_with_sector_sentiment_nlp)
-    - final_equity(dqn_without_nlp)
+### 8.1 Per-Stock Official / Signal Outputs
 
-sector_impact_effect =
-    final_equity(dqn_with_sector_impact_nlp)
-    - final_equity(dqn_without_nlp)
-```
-
-如果使用 marketwide：
-
-```text
-marketwide_sentiment_effect =
-    final_equity(dqn_with_marketwide_sentiment_nlp)
-    - final_equity(dqn_without_nlp)
-
-marketwide_impact_effect =
-    final_equity(dqn_with_marketwide_impact_nlp)
-    - final_equity(dqn_without_nlp)
-```
-
-## Signal Validity Diagnostics
-
-为了证明 NLP signal 是否有交易相关性，系统会计算：
-
-```text
-corr(signal_t, return_{t+1})
-corr(signal_t, return_{t+3})
-corr(signal_t, return_{t+5})
-```
-
-Information Coefficient：
-
-```text
-IC_h = corr(signal_t, R_{t,h})
-```
-
-分位数未来收益：
-
-```text
-E[R_{t,h} | signal_t in quantile q]
-```
-
-Hit rate：
-
-```text
-hit_rate_high =
-    P(R_{t,h} > 0 | signal_t in top quantile)
-
-hit_rate_low =
-    P(R_{t,h} < 0 | signal_t in bottom quantile)
-```
-
-这些诊断用于解释：
-
-```text
-sentiment NLP = text tone
-market-impact NLP = learned expected market reaction
-```
-
-## Main Output Files
-
-每只股票的输出位于：
+每只股票：
 
 ```text
 outputs/stocks/<symbol>/
+    data/
+    reports/
+    results/
+    models/
 ```
 
-主要结构：
-
-```text
-outputs/stocks/<symbol>/data/
-outputs/stocks/<symbol>/reports/
-outputs/stocks/<symbol>/results/
-outputs/stocks/<symbol>/models/
-```
-
-核心结果文件：
+关键 signal 文件：
 
 ```text
 outputs/stocks/<symbol>/results/peer_nlp_daily_sentiment.csv
 outputs/stocks/<symbol>/results/peer_market_impact_daily_signal.csv
-outputs/stocks/<symbol>/results/market_impact_ablation_metrics.csv
-outputs/stocks/<symbol>/results/market_impact_ablation_metrics_by_seed.csv
-outputs/stocks/<symbol>/results/market_impact_portfolio_curves.csv
-outputs/stocks/<symbol>/results/market_impact_trading_logs.csv
-outputs/stocks/<symbol>/results/market_impact_effect_summary.csv
-outputs/stocks/<symbol>/reports/market_impact_train_eval_windows.csv
-outputs/stocks/<symbol>/reports/market_impact_group_state_diagnostics.csv
-outputs/stocks/<symbol>/reports/market_impact_reliability_check.csv
 ```
 
-全局表格：
+这些文件是 model-upgrade grid 的输入之一。
+
+### 8.2 Latest Model-Upgrade Outputs
+
+主实验结果：
 
 ```text
-reports/tables/stock_sector_mapping.csv
-reports/tables/peer_nlp_corpus_summary.csv
-reports/tables/market_impact_corpus_summary.csv
-reports/tables/signal_validity_summary.csv
-reports/tables/market_impact_effect_summary.csv
+outputs/model_upgrade/model_upgrade_summary.csv
+outputs/model_upgrade/seed_level_metrics.csv
+outputs/model_upgrade/env_dynamics_diagnostics.csv
+outputs/model_upgrade/action_distribution_diagnostics.csv
+outputs/model_upgrade/q_value_diagnostics.csv
+outputs/model_upgrade/exploration_diagnostics.csv
+outputs/model_upgrade/portfolio_curves.csv
+outputs/model_upgrade/reward_variant_comparison.csv
+outputs/model_upgrade/state_feature_diagnostics.csv
+outputs/model_upgrade/stock_complete_performance.csv
+outputs/model_upgrade/STOCK_COMPLETE_PERFORMANCE.md
+outputs/model_upgrade/README_diagnostics.md
+outputs/model_upgrade/CHATGPT_DIAGNOSTIC_SUMMARY.md
+outputs/model_upgrade/UPGRADE_REASON_README.md
 ```
 
-## Installation
+当前报告写作建议优先使用：
+
+```text
+outputs/model_upgrade/STOCK_COMPLETE_PERFORMANCE.md
+outputs/model_upgrade/stock_complete_performance.csv
+outputs/model_upgrade/README_diagnostics.md
+outputs/model_upgrade/CHATGPT_DIAGNOSTIC_SUMMARY.md
+```
+
+`CHATGPT_DIAGNOSTIC_SUMMARY.md` 是轻量分析摘要；它不改变实验流程，也不是核心训练管线的一部分。
+
+---
+
+## 9. Installation
 
 ```bash
 cd /Users/luxinyu/Desktop/Fintech/fintechgp
@@ -747,71 +570,112 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-如果需要 Jupyter：
+Jupyter kernel：
 
 ```bash
 .venv/bin/python -m ipykernel install --user --name fintechgp --display-name "Python (.venv fintechgp)"
 ```
 
-## Run Dashboard
+---
 
-Dashboard 入口：
-
-```bash
-.venv/bin/streamlit run src/dashboard/peer_nlp_dashboard.py
-```
-
-或启动 peer dashboard CLI：
+## 10. Run Dashboard
 
 ```bash
-.venv/bin/python main.py --peer-dashboard
+python3 -m streamlit run src/dashboard/streamlit_app.py \
+  --server.port 8501 \
+  --server.address 127.0.0.1 \
+  --server.headless true
 ```
 
-Dashboard 左侧输入：
+Dashboard tabs：
 
 ```text
-Target symbol
-Company name
-Date range
-Market source priority
-News cap
-DQN episodes
-Peer corpus scope
+Single Stock Basics
+Scraping Density
+Peer Cross Analysis
+Market Impact Analysis
+Model Upgrade Diagnostics
 ```
 
-输入目标股票后，dashboard 会自动显示：
+当前 dashboard 的结果 tab 使用 latest model-upgrade outputs：
 
 ```text
-Experiment set:
-    target stock only
+Peer Cross Analysis:
+    Latest Model-Upgrade DQN Groups
+    portfolio curves
+    Buy / Sell / Hold counts
+    seed-level metrics
 
-Training peer set:
-    same-sector stocks excluding target stock
+Market Impact Analysis:
+    Latest Model-Upgrade Sentiment / Impact Comparison
+    Q-value diagnostics
+    state feature diagnostics
+    reward variant comparison
+
+Model Upgrade Diagnostics:
+    target_symbol selector
+    trade-by-trade behavior
+    portfolio + actions
+    exposure + actions
+    Q-value decision view
+    detailed trade log
+    diagnostic README and compact summary preview
 ```
 
-点击：
+Dashboard 对 `outputs/model_upgrade/*.csv` 严格按当前 `target_symbol` 过滤。如果当前股票没有 model-upgrade 结果，不会回退展示其他股票数据。
 
-```text
-Run target experiment
+---
+
+## 11. Run Model-Upgrade Grid
+
+Quick test，只验证代码路径：
+
+```bash
+python scripts/run_model_upgrade_grid.py --quick-test
 ```
 
-会按完整流程执行：
+Medium test，用于交互式 dashboard 后的行为诊断：
 
-```text
-data -> peer corpus -> NLP -> DQN -> metrics -> figures -> export
+```bash
+python scripts/run_model_upgrade_grid.py --medium-test
 ```
 
-Dashboard 默认启用 SQLite 持久化。运行时仍以 CSV 文件作为主要可审计产物，同时会把核心数据同步写入：
+指定单只股票：
 
-```text
-outputs/database/trading_platform.db
+```bash
+python scripts/run_model_upgrade_grid.py \
+  --target-symbol 002475 \
+  --target-company 立讯精密 \
+  --medium-test
 ```
 
-入库内容包括目标股票 market/news、peer sentiment daily signals、peer market-impact daily signals、DQN trading logs、ablation metrics。注意：页面中显示的 peer/training plan 来自配置表；只有点击运行并成功抓取后，对应股票才会出现在 `outputs/stocks/<symbol>/data/` 和 SQLite 数据库中。
+批量股票：
 
-## Run CLI
+```bash
+python scripts/run_model_upgrade_grid.py \
+  --batch-file outputs/model_upgrade/consumer_electronics_batch.csv \
+  --medium-test
+```
 
-单只股票实验：
+批量 CSV 格式：
+
+```csv
+target_symbol,target_company
+002475,立讯精密
+601138,工业富联
+```
+
+生成诊断 README：
+
+```bash
+python scripts/generate_model_upgrade_diagnostic_readme.py
+```
+
+---
+
+## 12. Run Legacy CLI
+
+旧 CLI 仍可用于复现实验流程和生成 official/signal artifacts：
 
 ```bash
 .venv/bin/python main.py \
@@ -829,92 +693,22 @@ outputs/database/trading_platform.db
   --episodes 200
 ```
 
-如果只想跑同板块 sector-only，应在 dashboard 选择：
+说明：
 
 ```text
-Peer corpus scope = sector_only
+legacy official outputs are useful for tracing the pipeline
+latest dashboard/report conclusions should use model-upgrade outputs
 ```
 
-如果要额外跑 marketwide benchmark：
+---
 
-```text
-Peer corpus scope = sector_plus_marketwide
-```
-
-## Run Notebook
-
-```bash
-.venv/bin/jupyter notebook notebooks/full_report_pipeline.ipynb
-```
-
-Notebook 用于报告型复现实验。Dashboard 更适合交互式运行和检查进度。
-
-## Data Cache Logic
-
-系统会避免同一股票反复生成冗余数据。
-
-当前主缓存目录是：
-
-```text
-outputs/stocks/<symbol>/data/
-```
-
-旧目录 `data/integrated/` 只作为 legacy fallback。不要用顶层 `data/` 文件数量判断当前实验是否已经具备所有 peer 数据；正式运行会先检查 `outputs/stocks/<symbol>/data/`，缺失时再调用 scraper 从线上数据源补齐。
-
-每只股票保留一个 master timeline：
-
-```text
-outputs/stocks/<symbol>/data/<symbol>_finance_text_master.csv
-```
-
-运行前检查：
-
-```text
-if master covers requested date range:
-    slice master and analyze
-else:
-    fetch missing interval
-    merge into master
-    deduplicate
-    materialize requested slice
-```
-
-这样可以保证：
-
-```text
-same stock data is not repeatedly duplicated
-cross-stock CSV format remains consistent
-```
-
-## SQLite Storage
-
-SQLite 是 dashboard/CLI 的同步存储层，不替代 CSV 审计文件。默认数据库路径：
-
-```text
-outputs/database/trading_platform.db
-```
-
-核心表：
-
-```text
-market_table
-news_table
-sentiment_table
-nlp_signal_table
-experiment_metrics_table
-trading_log_table
-```
-
-`nlp_signal_table` 以 long-form 保存 sector/marketwide sentiment 和 market-impact daily signals；`experiment_metrics_table` 以 normalized metric rows 保存 DQN/ablation 指标。重新运行同一股票同一 source 的 daily signal 和 metrics 会 upsert，trading logs 会 append，便于保留运行轨迹。
-
-## Project Structure
+## 13. Project Structure
 
 ```text
 config/
 docs/
 notebooks/
 program/
-program/finance_scraper/
 outputs/
 reports/
 scripts/
@@ -929,52 +723,64 @@ src/dashboard/
 tests/
 ```
 
-重要模块：
+关键模块：
 
-```text
-src/data_ingestion/ingestion.py
-    data cache, market data, news data, master timeline
+| Path | Responsibility |
+|---|---|
+| `src/data_ingestion/ingestion.py` | cache check, scraper orchestration, integrated finance_text CSV |
+| `src/storage/schema.sql` | optional SQLite schema |
+| `src/storage/database.py` | SQLite initialization and persistence helpers |
+| `src/nlp/peer_sentiment.py` | peer sentiment corpus and target scoring |
+| `src/nlp/market_impact.py` | future-return-labelled market-impact NLP |
+| `src/evaluation/model_upgrade.py` | latest model-upgrade grid |
+| `src/evaluation/model_upgrade_diagnostics.py` | diagnostic discovery and report generation |
+| `src/rl/trading_env.py` | chronological trading environment |
+| `src/rl/dqn_agent.py` | PyTorch DQN variants |
+| `src/dashboard/streamlit_app.py` | dashboard |
+| `scripts/run_model_upgrade_grid.py` | single-stock / batch model-upgrade runs |
+---
 
-src/nlp/peer_sentiment.py
-    peer sentiment corpus and daily sentiment signal
+## 14. Validation Commands
 
-src/nlp/market_impact.py
-    future-return-labelled market-impact NLP
-
-src/evaluation/market_impact_ablation.py
-    unified 8-D DQN state, pretrain, fine-tune, holdout evaluation
-
-src/rl/trading_env.py
-    chronological trading environment
-
-src/rl/dqn_agent.py
-    PyTorch DQN from scratch
-
-src/rl/train.py
-    DQN train and evaluate utilities
-
-src/dashboard/peer_nlp_dashboard.py
-    peer NLP and market-impact dashboard
+```bash
+python -m compileall src scripts tests
+pytest -q
+python scripts/generate_model_upgrade_diagnostic_readme.py
 ```
 
-## Reliability Checks
+Dashboard launch:
+
+```bash
+python3 -m streamlit run src/dashboard/streamlit_app.py \
+  --server.port 8501 \
+  --server.address 127.0.0.1 \
+  --server.headless true
+```
+
+---
+
+## 15. Reliability Checks
 
 系统会检查：
 
 ```text
-target stock excluded from NLP training
+target stock exclusion
 same-sector peer count
+marketwide peer diversity
 training news count
 market-impact labelled news count
-high-density window length
-target news coverage
+high-density window coverage
 lagged state features
 same-day leakage
 DQN trade count
 flat portfolio curves
+hold-heavy policy
+target-position exposure behavior
+Q-value margin
+seed-level stability
 ```
 
-如果条件不足，结果会标记为：
+常见状态：
 
 ```text
 READY_FOR_PRESENTATION
@@ -982,11 +788,36 @@ READY_WITH_WARNINGS
 NOT_READY
 ```
 
-## Known Limitations
+---
 
-1. A 股新闻接口远端历史新闻密度低，因此当前实验重点放在近端高密度窗口。
+## 16. Known Limitations
+
+1. A 股新闻接口远端历史新闻密度低，因此当前实验重点使用近端高密度窗口。
 2. Market-impact label 是 pseudo label，不是真实人工标注。
-3. 如果同板块 peer stocks 不足，sector NLP 会被标记为 insufficient。
-4. 如果 marketwide impact labelled news 不足，marketwide impact group 会被跳过。
-5. DQN 结果受随机种子、交易成本、训练 episode、市场状态影响，需要多 seed 聚合解释。
-6. NLP signal 改善 DQN 并不保证稳定发生，可能取决于板块、市场 regime、新闻覆盖率和 signal quality。
+3. `medium-test` 是行为诊断，不是最终论文结论。
+4. `full-grid` with more seeds 更适合正式报告结论。
+5. `reward_diagnostics.csv` 和 `nlp_incremental_effect.csv` 可能缺失；缺失时不能强行声称 reward attribution 或 NLP incremental effect 已充分证明。
+6. 旧 official 曲线和最新 model-upgrade 曲线不能直接逐点比较，因为 action space、state features、reward variant、seeds 和 portfolio timing 已经不同。
+7. SQLite 当前覆盖核心数据持久化；最新 model-upgrade 全量诊断仍以 CSV/Markdown/HTML 为主。
+
+---
+
+## 17. Report-Writing Guidance
+
+写论文结果部分时，优先参考：
+
+```text
+outputs/model_upgrade/STOCK_COMPLETE_PERFORMANCE.md
+outputs/model_upgrade/README_diagnostics.md
+outputs/model_upgrade/CHATGPT_DIAGNOSTIC_SUMMARY.md
+outputs/model_upgrade/stock_complete_performance.csv
+```
+
+安全结论：
+
+```text
+The platform evaluates whether peer-trained NLP signals improve DQN trading under target-stock exclusion.
+The latest model-upgrade experiment improves interpretability through target-position actions,
+normalized state features, environment dynamics, and Q-value diagnostics.
+NLP improvement should be discussed as evidence-based and conditional, not assumed.
+```
