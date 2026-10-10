@@ -459,7 +459,8 @@ def _score_target_from_peer_corpus(corpus: PeerCorpus, target_news: pd.DataFrame
 
     model = build_model()
     model.fit(train_texts, labels)
-    scores = [float(value) for value in model.predict(predict_texts)]
+    probabilities = pd.DataFrame(model.predict_proba(predict_texts), columns=model.named_steps["clf"].classes_)
+    scores = (probabilities.get(1, pd.Series(0.0, index=probabilities.index)) - probabilities.get(-1, pd.Series(0.0, index=probabilities.index))).tolist()
     return scores, f"logistic_tfidf_peer_trained_{label_method}", "logistic_peer"
 
 
@@ -469,8 +470,9 @@ def _pseudo_label_peer_texts(texts: list[str]) -> tuple[list[int], str]:
         sample_result = FinBERTSentiment().score(sample)
         if sample_result.status == "ok":
             full_result = FinBERTSentiment().score(texts)
-            if full_result.status == "ok" and len(set(full_result.scores)) > 1:
-                return [int(value) for value in full_result.scores], "finbert_pseudolabel"
+            if full_result.status == "ok":
+                label_map = {"positive": 1, "neutral": 0, "negative": -1}
+                return [label_map[value] for value in full_result.labels], "finbert_pseudolabel"
     return [int(value) for value in score_texts(texts)], "lexicon_pseudolabel"
 
 

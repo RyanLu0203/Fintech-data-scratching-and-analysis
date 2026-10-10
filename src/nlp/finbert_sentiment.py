@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class FinBERTResult:
     model_name: str = DEFAULT_MODEL
     allow_download: bool = False
     local_files_only: bool = True
+    revision: str = "main"
 
 
 class FinBERTSentiment:
@@ -33,14 +35,16 @@ class FinBERTSentiment:
             os.getenv("FINBERT_ALLOW_DOWNLOAD", "0") == "1" if allow_download is None else bool(allow_download)
         )
         self._classifier = None
+        self.revision = os.getenv("FINBERT_MODEL_REVISION", "main")
 
     def _load(self):
         if self._classifier is None:
             from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
             local_only = not self.allow_download
-            tokenizer = AutoTokenizer.from_pretrained(self.model_name, local_files_only=local_only)
-            model = AutoModelForSequenceClassification.from_pretrained(self.model_name, local_files_only=local_only)
+            tokenizer = AutoTokenizer.from_pretrained(self.model_name, revision=self.revision, local_files_only=local_only)
+            model = AutoModelForSequenceClassification.from_pretrained(self.model_name, revision=self.revision, local_files_only=local_only)
+            self.revision = getattr(model.config, "_commit_hash", None) or self.revision
             self._classifier = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer, return_all_scores=True)
         return self._classifier
 
@@ -70,8 +74,12 @@ class FinBERTSentiment:
         if not texts:
             return FinBERTResult([], [], [], [], [], "no_text", model_name=str(self.model_name), allow_download=self.allow_download, local_files_only=self.local_files_only)
         try:
+            if self.model_name == DEFAULT_MODEL and any(re.search(r"[\u4e00-\u9fff]", text) for text in texts):
+                raise ValueError("ProsusAI/finbert is English; configure a verified Chinese checkpoint for Chinese news.")
             classifier = self._load()
             outputs = classifier(texts, truncation=True)
+            if len(outputs) != len(texts):
+                raise ValueError("FinBERT output count differs from input count")
             labels: list[str] = []
             positive: list[float] = []
             neutral: list[float] = []
@@ -79,6 +87,8 @@ class FinBERTSentiment:
             scores: list[float] = []
             for item in outputs:
                 probs = {entry["label"].lower(): float(entry["score"]) for entry in item}
+                if set(probs) != {"positive", "neutral", "negative"}:
+                    raise ValueError("Checkpoint must expose verified positive/neutral/negative label names")
                 pos = probs.get("positive", 0.0)
                 neu = probs.get("neutral", 0.0)
                 neg = probs.get("negative", 0.0)
@@ -98,6 +108,7 @@ class FinBERTSentiment:
                 model_name=str(self.model_name),
                 allow_download=self.allow_download,
                 local_files_only=self.local_files_only,
+                revision=self.revision,
             )
         except Exception as exc:
             warning = (
@@ -106,17 +117,18 @@ class FinBERTSentiment:
                 f"Local cache hint: {self.local_cache_hint() or 'no matching local cache found'}"
             )
             LOGGER.warning("%s Error: %s", warning, exc)
-            zeros = [0.0 for _ in texts]
+            missing = [float("nan") for _ in texts]
             return FinBERTResult(
-                ["skipped" for _ in texts],
-                zeros,
-                zeros,
-                zeros,
-                zeros,
-                "skipped",
+                ["unavailable" for _ in texts],
+                missing,
+                missing,
+                missing,
+                missing,
+                "unavailable",
                 str(exc),
                 warning,
                 model_name=str(self.model_name),
                 allow_download=self.allow_download,
                 local_files_only=self.local_files_only,
+                revision=self.revision,
             )

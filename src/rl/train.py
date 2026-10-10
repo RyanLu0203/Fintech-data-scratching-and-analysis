@@ -327,6 +327,8 @@ def evaluate_agent(
                 "selected_q_value": selected_q,
                 "q_value_margin": q_margin,
             }
+            for column, value in zip(state_columns, state):
+                q_row[f"state_{column}"] = float(value)
             for index in range(5):
                 column = "q_hold_or_action0" if index == 0 else f"q_action{index}"
                 q_row[column] = float(q_values_array[index]) if index < len(q_values_array) else np.nan

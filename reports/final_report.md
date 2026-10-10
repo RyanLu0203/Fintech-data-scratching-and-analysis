@@ -1,3 +1,5 @@
+> Revision notice — 2026-10-10: this is preserved historical coursework material. Earlier result/accounting claims require re-evaluation after the state, reward and evaluation corrections. Current methods and evidence status are in [refinement_report.md](refinement_report.md).
+
 # NLP-Driven Reinforcement Learning Trading Platform Final Report
 
 ## Executive Summary

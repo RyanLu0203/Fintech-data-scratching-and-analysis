@@ -56,6 +56,8 @@ def add_trading_features(
     data = market.copy()
     data["date"] = pd.to_datetime(data["date"], errors="coerce")
     data = data.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if data["date"].duplicated().any():
+        raise ValueError("Market data must have one row per trading session; separate news before joining.")
     for column in ["open", "high", "low", "close", "volume"]:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
@@ -76,6 +78,8 @@ def add_trading_features(
     loss = (-delta.clip(upper=0)).rolling(14, min_periods=14).mean()
     rs = gain / loss.replace(0, np.nan)
     data["RSI_raw"] = 100 - (100 / (1 + rs))
+    data.loc[(loss == 0) & (gain > 0), "RSI_raw"] = 100.0
+    data.loc[(loss == 0) & (gain == 0), "RSI_raw"] = 50.0
 
     ema12 = data["close"].ewm(span=12, adjust=False).mean()
     ema26 = data["close"].ewm(span=26, adjust=False).mean()
@@ -105,7 +109,9 @@ def add_trading_features(
         if news_count_column:
             rename_map[news_count_column] = "news_count"
         signal = signal.rename(columns=rename_map)
-        data = data.merge(signal, on="date", how="left")
+        if signal["date"].duplicated().any():
+            raise ValueError("Aggregate news to one daily signal before joining market data.")
+        data = data.merge(signal, on="date", how="left", validate="one_to_one")
 
     if "sentiment_score" not in data.columns:
         data["sentiment_score"] = 0.0
@@ -127,6 +133,7 @@ def add_trading_features(
 
     # The state at date t only sees features known by the close of t-1.
     data["price"] = data["price_raw"].shift(1)
+    data["lagged_return_1d"] = data["same_day_return"].shift(1)
     data["MA50"] = data["MA50_raw"].shift(1)
     data["MA200"] = data["MA200_raw"].shift(1)
     data["RSI"] = data["RSI_raw"].shift(1)
@@ -164,8 +171,8 @@ def add_enhanced_nlp_features(data: pd.DataFrame) -> pd.DataFrame:
     frame["sentiment_rolling_5d"] = sentiment.rolling(5, min_periods=1).mean()
     frame["sentiment_change_1d"] = sentiment.diff().fillna(0.0)
     frame["news_count"] = news_count
-    std = news_count.std(ddof=0)
-    frame["news_count_zscore"] = 0.0 if std == 0 or pd.isna(std) else (news_count - news_count.mean()) / std
+    std = news_count.expanding().std(ddof=0).replace(0, np.nan)
+    frame["news_count_zscore"] = ((news_count - news_count.expanding().mean()) / std).fillna(0.0)
     frame["positive_ratio"] = sentiment.clip(lower=0.0, upper=1.0)
     frame["negative_ratio"] = (-sentiment).clip(lower=0.0, upper=1.0)
     return frame

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "run_id": "20261010T093545775274Z_smoke_002475",
+  "status": "complete",
+  "mode": "smoke",
+  "evidence_status": "synthetic_path_check",
+  "created_at": "2026-10-10T09:35:45.775378+00:00",
+  "config": {
+    "target_symbol": "002475",
+    "mode": "smoke",
+    "episodes": 2,
+    "seeds": [
+      42
+    ],
+    "nlp_days": 20,
+    "train_days": 20,
+    "test_days": 10,
+    "folds": 2,
+    "initial_cash": 1000000.0,
+    "transaction_cost": 0.001
+  },
+  "upstream_commit": "f66e264874163d09a6556f50a0405e4df57089d0",
+  "accounting_version": "previous_close_to_current_close_v2",
+  "protocol": "NLP prefix -> RL training -> untouched test; frozen scalers and models per fold",
+  "finbert_status": "not_used_in_core_weak_label_comparison; independent gold benchmark required",
+  "input_hashes": {
+    "target_market": "b641d5847c826102ca831a959629bb1da2510dcd6ca466088c9cb3dbbad583dc",
+    "target_news": "3cc9679c785b50cd63d2dae8442302ad878837a7ee7f0f30e6f8b100c7e36b43",
+    "peer_news": "9557d1292d7c07fab94876e79fe783ca8957a1156e72de6beb73dcbeca9bafb6",
+    "peer_market": "42385f4f82458c3ae87f7a5a72c8ce105846836b2f38b0fc5c8305fbc38c5e16"
+  },
+  "folds": [
+    {
+      "nlp_fit_end": "2025-01-29T07:00:00+00:00",
+      "sentiment_training_rows": 38,
+      "impact_training_rows": 32,
+      "peer_symbols": [
+        "002241",
+        "601138"
+      ],
+      "label_end_at_max": "2025-01-29T07:00:00+00:00",
+      "sentiment_labels": "lexicon weak labels",
+      "impact_labels": "3-session peer close return, thresholds +/-1.5%",
+      "fold": 1,
+      "train_start": "2025-01-30",
+      "train_end": "2025-02-26",
+      "test_start": "2025-02-27",
+      "test_end": "2025-03-12",
+      "target_news_test_rows": 4
+    },
+    {
+      "nlp_fit_end": "2025-02-12T07:00:00+00:00",
+      "sentiment_training_rows": 58,
+      "impact_training_rows": 52,
+      "peer_symbols": [
+        "002241",
+        "601138"
+      ],
+      "label_end_at_max": "2025-02-12T07:00:00+00:00",
+      "sentiment_labels": "lexicon weak labels",
+      "impact_labels": "3-session peer close return, thresholds +/-1.5%",
+      "fold": 2,
+      "train_start": "2025-02-13",
+      "train_end": "2025-03-12",
+      "test_start": "2025-03-13",
+      "test_end": "2025-03-26",
+      "target_news_test_rows": 3
+    }
+  ],
+  "files": {
+    "metrics": "metrics.csv",
+    "paired": "paired_differences.csv",
+    "trades": "trading_logs.csv",
+    "training": "training_rewards.csv",
+    "signals": "daily_signals.csv",
+    "trace": "news_trace.csv",
+    "profile": "data_quality.json"
+  },
+  "code_sha256": "cc272adcdad3c923091ea76ab1c0ac4d3ab0dc571390d00aceafa5bf83a3fdae",
+  "dqn": {
+    "variant": "vanilla_dqn",
+    "state_columns": [
+      "price",
+      "MA50",
+      "MA200",
+      "RSI",
+      "MACD",
+      "position",
+      "cash",
+      "nlp_signal_score"
+    ],
+    "action_mode": "discrete_trade",
+    "hidden_layers": [
+      64,
+      64
+    ],
+    "reward_variant": "one_day_return",
+    "loss": "huber",
+    "gamma": 0.99,
+    "learning_rate": 0.001,
+    "flat_penalty_enabled": false,
+    "trade_exploration_bonus_enabled": false,
+    "scaling": "fit on RL training window; frozen for test"
+  },
+  "sector_mapping_sha256": "276620f27cd2fc57ba316baace3c4e5edccc71bdb8e8e46ba1824ded12fc1052",
+  "file_sha256": {
+    "metrics": "37d4d90b5125a54f5944383eac13b3028ac6ba1444c0ae16d5aa67160bba6ec6",
+    "paired": "ec08fcdffbe197e0d3e187b111ac94c3150a8de2e0d29eef938cab22dcd8b860",
+    "trades": "383191f69c3770371952f91fb1b1a9aec17e6bc5e15553d0f018f4f6a9927540",
+    "training": "fd2c89696b284cc72f5e5a00594d862c37375deb9f1b8590251e932e897b8bde",
+    "signals": "911e16c9ed4997b726e4dc7447f001deb9ed5dc9757be5f10ed62fa0844927c6",
+    "trace": "146469fe633e7199c7b265f7ee319e7973ac7c44f95aff29663122047fd15b8c",
+    "profile": "3ad72437750475673fa906875e49cc0a5b37e9ce2fc697ebe59063ef33246ff7"
+  }
+}

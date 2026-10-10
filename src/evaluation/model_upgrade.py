@@ -404,12 +404,18 @@ def _add_normalized_plus_features(
     if not np.isfinite(macd_std) or macd_std < 1e-9:
         macd_std = 1.0
     beta = _market_residual_beta(train, signal_column)
+    history = pd.concat([train, test], ignore_index=True)
+    lagged_returns = _numeric(history, "price").pct_change().fillna(0.0)
     for frame, period in [(train, "train"), (test, "test")]:
         price = _numeric(frame, "price")
         ma50 = _numeric(frame, "MA50").replace(0, np.nan)
         ma200 = _numeric(frame, "MA200").replace(0, np.nan)
         signal = _numeric(frame, UNIFIED_NLP_STATE_COLUMN)
-        frame["daily_return"] = _numeric(frame, "close").pct_change().fillna(0.0)
+        offset = 0 if period == "train" else len(train)
+        frame["daily_return"] = (
+            _numeric(frame, "lagged_return_1d") if "lagged_return_1d" in frame
+            else lagged_returns.iloc[offset:offset + len(frame)].to_numpy()
+        )
         frame["price_ma50_gap"] = (price / ma50 - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         frame["price_ma200_gap"] = (price / ma200 - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
         frame["ma50_ma200_gap"] = (ma50 / ma200 - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)

@@ -38,6 +38,12 @@ from src.features.money_flow import compute_daily_net_flow
 
 
 st.set_page_config(page_title="Peer NLP Trading Experiment", layout="wide")
+from src.dashboard.coursework_view import render_coursework_reader
+
+if not st.sidebar.checkbox("Advanced research controls", value=False):
+    render_coursework_reader()
+    st.stop()
+st.warning("Research workspace · Legacy corpus and grid paths are diagnostic. Use scripts/run_coursework.py for chronological formal evaluation.")
 st.title("Peer NLP Transfer Trading Experiment")
 st.caption("支持 held-out target stock + peer sentiment NLP / market-impact NLP + DQN cross analysis。")
 
