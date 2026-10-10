@@ -116,7 +116,7 @@ with a diagnostic-use notice. Output hashes reject incomplete/changed run files.
 
 Verification used the existing Python 3.9.6/macOS environment. Exact installed
 versions are in `requirements-validation.txt`. The new offline CI workflow uses those pins and CPU
-PyTorch. GitHub Actions [run 38042482465](https://github.com/RyanLu0203/Fintech-data-scratching-and-analysis/actions/runs/38042482465) subsequently passed in a fresh Linux/Python 3.11 environment: pinned installation, compilation, tests and the two-fold Smoke run. A fresh macOS installation and an installation from unrestricted lower bounds remain unverified.
+PyTorch. GitHub Actions [workflow](https://github.com/RyanLu0203/Fintech-data-scratching-and-analysis/actions/workflows/ci.yml) subsequently passed in a fresh Linux/Python 3.11 environment: pinned installation, compilation, tests and the two-fold Smoke run. A fresh macOS installation and an installation from unrestricted lower bounds remain unverified.
 
 ## Remaining empirical and handover work
 
