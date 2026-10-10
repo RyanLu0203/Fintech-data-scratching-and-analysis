@@ -1,0 +1,24 @@
+{
+  "trading": [
+    {
+      "run_id": "20261010T110624246574Z_full_601138",
+      "models": 18,
+      "ledger_rows": 1260,
+      "training_rows": 3600,
+      "status": "passed"
+    },
+    {
+      "run_id": "20261010T110624247113Z_full_002475",
+      "models": 18,
+      "ledger_rows": 1260,
+      "training_rows": 3600,
+      "status": "passed"
+    }
+  ],
+  "nlp": {
+    "benchmark_rows": 593,
+    "common_test_rows": 149,
+    "status": "passed"
+  },
+  "status": "passed"
+}

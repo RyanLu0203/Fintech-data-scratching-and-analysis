@@ -91,6 +91,17 @@ def input_profile(
         "target_news_rows": len(target),
         "peer_news_rows": len(peers),
         "peer_symbols": sorted(peers["symbol"].unique().tolist()),
+        "target_news_sources": target["source"].value_counts().to_dict(),
+        "peer_news_by_symbol": peers["symbol"].value_counts().to_dict(),
+        "target_monthly_titles": target["available_at"]
+        .dt.tz_convert("Asia/Shanghai")
+        .dt.strftime("%Y-%m")
+        .value_counts()
+        .sort_index()
+        .to_dict(),
+        "availability_policies": target["availability_policy"].value_counts().to_dict()
+        if "availability_policy" in target
+        else {"unspecified": len(target)},
         "target_news_first_available": str(target["available_at"].min()),
         "target_news_last_available": str(target["available_at"].max()),
         "nulls": {
@@ -187,7 +198,7 @@ def run_coursework(
         else "historical_re_evaluation",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "config": asdict(config),
-        "upstream_commit": "f66e264874163d09a6556f50a0405e4df57089d0",
+        "upstream_commit": "b0660a6bf849bd241f0d5fec67cc700e707222ef",
         "accounting_version": "previous_close_to_current_close_v2",
         "protocol": "NLP prefix -> RL training -> untouched test; frozen scalers and models per fold",
         "finbert_status": "not_used_in_core_weak_label_comparison; independent gold benchmark required",
@@ -281,6 +292,9 @@ def run_coursework(
                     "Feature warmup removed planned sessions; extend the NLP prefix"
                 )
             fold_id = fold + 1
+            label_file = f"peer_labels_fold_{fold_id}.csv"
+            mature_labels.to_csv(run_dir / label_file, index=False)
+            manifest["files"][f"peer_labels_fold_{fold_id}"] = label_file
             provenance.update(
                 {
                     "fold": fold_id,
@@ -349,6 +363,15 @@ def run_coursework(
                         seed=seed,
                         dqn_config=dqn,
                         output_dir=run_dir / f"fold_{fold_id}" / f"seed_{seed}",
+                        cache_market_rows=True,
+                        progress_callback=lambda progress: (
+                            print(
+                                f"fold={fold_id} seed={seed} group={experiment} episode={progress.get('episode')}/{config.episodes}",
+                                flush=True,
+                            )
+                            if config.mode == "full"
+                            else None
+                        ),
                     )
                     scaler_path = (
                         run_dir
@@ -429,6 +452,14 @@ def run_coursework(
         manifest["file_sha256"] = {
             name: hashlib.sha256((run_dir / path).read_bytes()).hexdigest()
             for name, path in manifest["files"].items()
+        }
+        manifest["model_sha256"] = {
+            path.relative_to(run_dir).as_posix(): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in sorted(run_dir.rglob("*"))
+            if path.is_file()
+            and (path.suffix == ".pt" or path.name.endswith("_state_scaler.json"))
         }
     except Exception as exc:
         manifest["status"] = "failed"

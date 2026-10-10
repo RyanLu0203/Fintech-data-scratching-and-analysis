@@ -75,8 +75,10 @@ def run_choices() -> dict[str, Path | None]:
         if showcase.exists()
         else None
     }
-    paths = list((ROOT / "outputs/runs").glob("*/manifest.json")) + list(
-        (ROOT / "outputs/demo").glob("*/manifest.json")
+    paths = (
+        list((ROOT / "outputs/runs").glob("*/manifest.json"))
+        + list((ROOT / "outputs/demo").glob("*/manifest.json"))
+        + list((ROOT / "outputs/real").glob("*/manifest.json"))
     )
     for path in sorted(paths):
         try:
@@ -114,7 +116,7 @@ def render_coursework_reader() -> None:
         )
     elif manifest:
         st.info(
-            "Historical re-evaluation · Assess paired differences across every fold and seed before drawing conclusions."
+            "Historical disclosure-title re-evaluation · Availability is delayed after the public notice date; prices use a frozen adjusted snapshot. Assess every fold and seed before drawing conclusions."
         )
     else:
         st.info(
@@ -170,6 +172,8 @@ def render_coursework_reader() -> None:
                     "evidence": manifest["evidence_status"],
                 }
             )
+            for limitation in manifest.get("limitations", []):
+                st.caption(limitation)
         st.caption(
             "The original May 2026 diagnostic files remain in the repository. They use earlier accounting and are excluded from this reader's result comparison."
         )
@@ -181,7 +185,15 @@ def render_coursework_reader() -> None:
         st.header("Methods & Project")
         section = st.selectbox(
             "Read about",
-            ["methodology", "project_journey", "data", "reproduction", "team"],
+            [
+                "real_experiments",
+                "finbert_evaluation",
+                "methodology",
+                "project_journey",
+                "data",
+                "reproduction",
+                "team",
+            ],
         )
         path = ROOT / "docs" / f"{section}.md"
         if path.is_file():

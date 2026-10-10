@@ -20,8 +20,8 @@ historical coverage. Impact: a target-text train/test split alone may provide
 little usable training data. Response: sector/marketwide peer corpora and
 coverage diagnostics. Limitation: excluding the target does not exclude future
 peer text or future return labels. The new fixed runner adds an explicit NLP
-prefix, availability checks and label maturity. Real coverage still needs the
-source snapshots; no density improvement is claimed from a synthetic fixture.
+prefix, availability checks and label maturity. The new frozen snapshot measures
+real disclosure-title coverage; it does not establish complete media coverage.
 
 ## Case B: hold-heavy DQN
 
@@ -39,11 +39,11 @@ state, training scaler and three actions; the extensions remain available.
 |---|---|---|
 | M1 Story and repository | Implemented locally | new homepage, three diagram sources and document navigation |
 | M2 Data and accounting | Tested for targeted semantics | grain, availability, fee/overnight/final-session counterexamples |
-| M3 NLP and evaluation | Runner implemented; formal evidence pending | independent gold split and true per-fold fitting; real FinBERT/gold inputs absent |
-| M4 Results and demo | Smoke completed; real results pending | frozen reader and synthetic two-fold run; no formal market claim |
-| M5 Handover | Local package prepared | local checks and browser review; Linux/Python 3.11 CI install/tests/Smoke passed |
+| M3 NLP and evaluation | Actual inference complete | pinned Chinese FinBERT, CFBenchmark human labels, shared 149-text test; private training overlap unknown |
+| M4 Results and demo | Full complete for both targets | 36 × 200-episode agents, all folds/seeds, ledger validation and formal reader; unstable differences retained |
+| M5 Handover | Reproduction and evidence included | frozen data/models/predictions, scripts and offline CI evidence validation |
 
-The next empirical step is to freeze the real 002475/601138 source data,
-verify a suitable language checkpoint and complete the independent NLP and
-200-episode comparisons. The roadmap has no invented completion percentage,
-team assignment, historical PR review or delivery date.
+See [real experiments](real_experiments.md) and [FinBERT evaluation](finbert_evaluation.md)
+for the completed empirical follow-up. Further work is new project-title human
+annotation and genuinely prospective data, plus team contribution confirmation
+and course presentation preparation. No invented team assignment is included.

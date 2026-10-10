@@ -1,0 +1,48 @@
+{
+  "status": "complete",
+  "created_at": "2026-10-10T11:08:02.871639+00:00",
+  "dataset": "TongjiFinLab/CFBenchmark",
+  "dataset_revision": "3c825c2c9a63634736630e207c15cd27ab9633b6",
+  "model": "yiyanghkust/finbert-tone-chinese",
+  "model_revision": "e91b1a3af10e1e8c9c03429d3cd7d5e9a1c8000d",
+  "annotation": "External labels: three professional researchers' consensus, CFBenchmark paper section 3.3",
+  "gold_csv_sha256": "10379acb41898119f7152019397cefb79ba74b4282973137e61c0501a77cf9be",
+  "model_file_sha256": {
+    "README.md": "24acec05c89a61bd1afa360d9913b0b043be61e5602c24eff832d14fd96d5ea6",
+    "config.json": "4b9eb1fc46e979f0177934b4ce798591a86fb5817459854a83e0ba0517f12ec2",
+    "model.safetensors": "0c25b105902f90d1e039d511944af4f49d1490f6698e701f2704a714ca74e66b",
+    "special_tokens_map.json": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+    "tokenizer_config.json": "cfcc4a4dd9757a0ebb06c5ec8056d7dd4cb1eda36ca3609e4cfa7922c3b9f003",
+    "vocab.txt": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
+  },
+  "common_split": {
+    "train_rows": 444,
+    "test_rows": 149,
+    "policy": "stratified 75/25 seed 42; normalized duplicate exclusion; train/test frozen before inference"
+  },
+  "all_external_finbert": {
+    "rows": 593,
+    "accuracy": 0.40640809443507586,
+    "macro_f1": 0.37387836490528414
+  },
+  "runtime": {
+    "torch": "2.8.0",
+    "device": "cpu",
+    "batch_size": 8,
+    "max_length": 512,
+    "truncated_rows": 219,
+    "elapsed_seconds": 98.809233167
+  },
+  "limitations": [
+    "checkpoint private training corpus is unavailable: overlap with this public benchmark is unknown",
+    "external document benchmark does not establish accuracy on the project's disclosure titles",
+    "all-external FinBERT score uses unchanged checkpoint; LR comparison uses only common held-out test",
+    "no new human annotation of project titles and no FinBERT-based trading claim"
+  ],
+  "files": {
+    "common_test_confusion.csv": "f0479e3e6be60539fbd613250fe319c161d95a44120a21965d695c256fdc1887",
+    "common_test_metrics.csv": "964a82f2428c211ec7316cc4f5140e7782c31ad4eab2e22961c170cf32a15cec",
+    "common_test_predictions.csv": "d24d60010a6cdf16cfcd198ac02f1c5350d021e34cffa41bdeb65d0d2eb7582d",
+    "finbert_all_external_predictions.csv": "01f35e80853da318c4b872226613cfbd840f629506ef7c4c87b02c23f0451d1f"
+  }
+}

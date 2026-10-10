@@ -1,0 +1,18 @@
+{
+  "model": "yiyanghkust/finbert-tone-chinese",
+  "revision": "e91b1a3af10e1e8c9c03429d3cd7d5e9a1c8000d",
+  "license": "Apache-2.0",
+  "label_map": {
+    "0": "neutral",
+    "1": "positive",
+    "2": "negative"
+  },
+  "file_sha256": {
+    "config.json": "4b9eb1fc46e979f0177934b4ce798591a86fb5817459854a83e0ba0517f12ec2",
+    "model.safetensors": "0c25b105902f90d1e039d511944af4f49d1490f6698e701f2704a714ca74e66b",
+    "special_tokens_map.json": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+    "tokenizer_config.json": "cfcc4a4dd9757a0ebb06c5ec8056d7dd4cb1eda36ca3609e4cfa7922c3b9f003",
+    "vocab.txt": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c",
+    "README.md": "24acec05c89a61bd1afa360d9913b0b043be61e5602c24eff832d14fd96d5ea6"
+  }
+}
