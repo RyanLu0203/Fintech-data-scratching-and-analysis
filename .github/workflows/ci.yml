@@ -14,3 +14,4 @@ jobs:
       - run: python -m compileall -q src scripts tests
       - run: python -m pytest -q
       - run: python scripts/run_coursework.py --mode smoke
+      - run: python scripts/validate_saved_evidence.py

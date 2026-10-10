@@ -88,6 +88,7 @@ def train_dqn(
     initial_epsilon: float | None = None,
     state_scaler: dict[str, dict[str, float]] | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
+    cache_market_rows: bool = False,
 ) -> dict[str, object]:
     """Train a DQN agent and return reward curve plus final trading log."""
 
@@ -150,6 +151,7 @@ def train_dqn(
             training_mode=True,
             current_episode=episode,
             total_episodes=episodes,
+            cache_market_rows=cache_market_rows,
         )
         state = normalize_state(env.reset(), state_columns, scaler)
         done = False

@@ -29,23 +29,49 @@ class FinBERTResult:
 
 
 class FinBERTSentiment:
-    def __init__(self, model_name: str | None = None, allow_download: bool | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str | None = None,
+        allow_download: bool | None = None,
+        batch_size: int = 8,
+        max_length: int = 512,
+        device: str | None = None,
+    ) -> None:
         self.model_name = model_name or os.getenv("FINBERT_MODEL_NAME", DEFAULT_MODEL)
         self.allow_download = (
-            os.getenv("FINBERT_ALLOW_DOWNLOAD", "0") == "1" if allow_download is None else bool(allow_download)
+            os.getenv("FINBERT_ALLOW_DOWNLOAD", "0") == "1"
+            if allow_download is None
+            else bool(allow_download)
         )
         self._classifier = None
         self.revision = os.getenv("FINBERT_MODEL_REVISION", "main")
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self.device = device or os.getenv("FINBERT_DEVICE", "cpu")
 
     def _load(self):
         if self._classifier is None:
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+            from transformers import (
+                AutoModelForSequenceClassification,
+                AutoTokenizer,
+                pipeline,
+            )
 
             local_only = not self.allow_download
-            tokenizer = AutoTokenizer.from_pretrained(self.model_name, revision=self.revision, local_files_only=local_only)
-            model = AutoModelForSequenceClassification.from_pretrained(self.model_name, revision=self.revision, local_files_only=local_only)
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name, revision=self.revision, local_files_only=local_only
+            )
+            model = AutoModelForSequenceClassification.from_pretrained(
+                self.model_name, revision=self.revision, local_files_only=local_only
+            )
             self.revision = getattr(model.config, "_commit_hash", None) or self.revision
-            self._classifier = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer, return_all_scores=True)
+            self._classifier = pipeline(
+                "sentiment-analysis",
+                model=model,
+                tokenizer=tokenizer,
+                top_k=None,
+                device=self.device,
+            )
         return self._classifier
 
     @property
@@ -55,7 +81,12 @@ class FinBERTSentiment:
     @staticmethod
     def cache_roots() -> list[Path]:
         roots = []
-        for env_name in ("FINBERT_MODEL_DIR", "TRANSFORMERS_CACHE", "HF_HOME", "HUGGINGFACE_HUB_CACHE"):
+        for env_name in (
+            "FINBERT_MODEL_DIR",
+            "TRANSFORMERS_CACHE",
+            "HF_HOME",
+            "HUGGINGFACE_HUB_CACHE",
+        ):
             value = os.getenv(env_name)
             if value:
                 roots.append(Path(value).expanduser())
@@ -72,12 +103,31 @@ class FinBERTSentiment:
 
     def score(self, texts: list[str]) -> FinBERTResult:
         if not texts:
-            return FinBERTResult([], [], [], [], [], "no_text", model_name=str(self.model_name), allow_download=self.allow_download, local_files_only=self.local_files_only)
+            return FinBERTResult(
+                [],
+                [],
+                [],
+                [],
+                [],
+                "no_text",
+                model_name=str(self.model_name),
+                allow_download=self.allow_download,
+                local_files_only=self.local_files_only,
+            )
         try:
-            if self.model_name == DEFAULT_MODEL and any(re.search(r"[\u4e00-\u9fff]", text) for text in texts):
-                raise ValueError("ProsusAI/finbert is English; configure a verified Chinese checkpoint for Chinese news.")
+            if self.model_name == DEFAULT_MODEL and any(
+                re.search(r"[\u4e00-\u9fff]", text) for text in texts
+            ):
+                raise ValueError(
+                    "ProsusAI/finbert is English; configure a verified Chinese checkpoint for Chinese news."
+                )
             classifier = self._load()
-            outputs = classifier(texts, truncation=True)
+            outputs = classifier(
+                texts,
+                truncation=True,
+                max_length=self.max_length,
+                batch_size=self.batch_size,
+            )
             if len(outputs) != len(texts):
                 raise ValueError("FinBERT output count differs from input count")
             labels: list[str] = []
@@ -86,13 +136,20 @@ class FinBERTSentiment:
             negative: list[float] = []
             scores: list[float] = []
             for item in outputs:
-                probs = {entry["label"].lower(): float(entry["score"]) for entry in item}
+                probs = {
+                    entry["label"].lower(): float(entry["score"]) for entry in item
+                }
                 if set(probs) != {"positive", "neutral", "negative"}:
-                    raise ValueError("Checkpoint must expose verified positive/neutral/negative label names")
+                    raise ValueError(
+                        "Checkpoint must expose verified positive/neutral/negative label names"
+                    )
                 pos = probs.get("positive", 0.0)
                 neu = probs.get("neutral", 0.0)
                 neg = probs.get("negative", 0.0)
-                label = max({"positive": pos, "neutral": neu, "negative": neg}, key={"positive": pos, "neutral": neu, "negative": neg}.get)
+                label = max(
+                    {"positive": pos, "neutral": neu, "negative": neg},
+                    key={"positive": pos, "neutral": neu, "negative": neg}.get,
+                )
                 labels.append(label)
                 positive.append(pos)
                 neutral.append(neu)

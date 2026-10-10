@@ -53,6 +53,7 @@ class FinancialTradingEnv:
         training_mode: bool = False,
         current_episode: int = 0,
         total_episodes: int = 0,
+        cache_market_rows: bool = False,
     ) -> None:
         self.data = data.sort_values("date").reset_index(drop=True).copy()
         self.state_columns = state_columns or STATE_COLUMNS
@@ -88,7 +89,18 @@ class FinancialTradingEnv:
         self.training_mode = bool(training_mode)
         self.current_episode = int(current_episode)
         self.total_episodes = int(total_episodes)
+        # Opt in only for frozen training inputs. The default keeps the public
+        # mutable DataFrame behavior used by diagnostics and boundary tests.
+        self._rows = self.data.to_dict("records") if cache_market_rows else None
+        self._fixed_states = None
+        if cache_market_rows:
+            self._fixed_states = self.data.reindex(columns=self.state_columns).apply(
+                pd.to_numeric, errors="coerce"
+            ).fillna(0.0).to_numpy(dtype=float)
         self.reset()
+
+    def _row(self, index: int):
+        return self._rows[index] if self._rows is not None else self.data.loc[index]
 
     def reset(self) -> np.ndarray:
         self.index = 0
@@ -105,7 +117,7 @@ class FinancialTradingEnv:
         if self.index >= len(self.data):
             raise IndexError("Environment is already done; call reset() before stepping again.")
 
-        row = self.data.loc[self.index]
+        row = self._row(self.index)
         trade_price = self._execution_price(row)
         cash_before = float(self.cash)
         shares_before = float(self.shares)
@@ -349,7 +361,7 @@ class FinancialTradingEnv:
         # Multi-day variants remain counterfactual research targets; they are
         # not n-step Bellman returns. The formal runner uses one_day_return.
         target_index = min(self.index + max(int(horizon_days), 1) - 1, len(self.data) - 1)
-        value_price = self._valuation_price(self.data.loc[target_index])
+        value_price = self._valuation_price(self._row(target_index))
         return float(self.cash + self.shares * value_price)
 
     def _reward(self, base_reward: float, turnover: float, drawdown: float) -> float:
@@ -365,6 +377,18 @@ class FinancialTradingEnv:
         )
 
     def _state(self) -> np.ndarray:
+        if self._fixed_states is not None:
+            index = min(self.index, len(self.data) - 1)
+            values = self._fixed_states[index].copy()
+            row = self._row(index)
+            price = self._valuation_price(self._row(min(self.index - 1, len(self.data) - 1))) if self.index > 0 else float(row.get("price", self._execution_price(row)))
+            nav = max(float(self.cash + self.shares * price), 1e-9)
+            dynamic = {"position": self.shares, "cash": self.cash,
+                       "position_ratio": self.shares * price / nav, "cash_ratio": self.cash / nav}
+            for column, value in dynamic.items():
+                if column in self.state_columns:
+                    values[self.state_columns.index(column)] = value
+            return values
         row = self.data.loc[min(self.index, len(self.data) - 1)].copy()
         row["position"] = self.shares
         row["cash"] = self.cash

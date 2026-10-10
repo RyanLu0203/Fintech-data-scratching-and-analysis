@@ -1,10 +1,12 @@
 # Data overview and input contract
 
-The downloaded public main snapshot contains historical model-upgrade result
-CSVs. It does **not** contain the target/peer source market and timestamped news
-needed to reproduce those results. Do not infer coverage from the result curves.
-The existing scraper/cache remains the collection entry point; obtaining inputs
-and running Full are separate from the read-only Demo.
+The repository includes a frozen real-data snapshot for 002475/601138 and fixed
+peers 002241/601231 under `data/frozen/electronics_2023_2025_20261010/`. Each has
+541 Tencent qfq sessions; Eastmoney supplies 1,489 disclosure titles across the
+four symbols. Raw responses, URLs, retrieval times and CSV hashes are retained
+in `source_manifest.json`. See [real experiments](real_experiments.md) for source
+counts, test dates and limitations. Older model-upgrade outputs remain historical
+diagnostics and do not supply source evidence for this run.
 
 ## Four source files for Full
 
@@ -23,17 +25,26 @@ from the same configured sector, excluding the target. Full needs at least two
 independent peers and actual target news in each test interval.
 
 `available_at` must contain time and timezone, for example
-`2025-03-07T18:30:00+08:00`. It means the earliest time the story could have
-been read using the recorded source. Store `published_at`, `fetched_at`, URL,
+`2025-03-07T18:30:00+08:00`. It means the observed or explicitly assumed time
+after which the story may enter a decision. Store `published_at`, `fetched_at`, URL,
 provider ID and failure reason when available; retain them in the source audit.
 If only a date is known, do not invent a timestamp. A conservative documented
 availability policy must first be established from the provider evidence.
+The included historical listings omit precise display times. Their policy
+waits until the whole public-notice date is over (next calendar day 00:00
+Asia/Shanghai), also respecting any later precise production time.
+`availability_inferred` is true. This assumption is conservative with respect
+to the recorded date; it cannot verify point-in-time completeness of historical
+listings. First eligible opening is strictly later than that bound.
 
 Program-generated price summaries remain useful ingestion diagnostics but
 are excluded from the external-news increment experiment. The Full gate rejects
 sources marked generated, synthetic or fixture. It never fills missing news
-with synthetic text. Normalized duplicate stories are counted once, using the
-later availability timestamp conservatively. Semantic near duplicates still
+with synthetic text. Revisions of one provider ID retain the later timestamp.
+Distinct IDs with the same normalized text survive chronological selection:
+peer fitting deduplicates within the cutoff, target scoring counts the first
+eligible occurrence and excludes texts fitted on peers. A future repeat cannot
+erase an earlier training story. Semantic near duplicates still
 need review. Source permissions govern whether full articles can be redistributed;
 this repository refinement does not grant redistribution rights.
 

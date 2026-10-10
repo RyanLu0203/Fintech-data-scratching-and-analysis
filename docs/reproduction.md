@@ -25,8 +25,8 @@ python -m streamlit run src/dashboard/streamlit_app.py --server.address 127.0.0.
 
 The default reader has Overview, News to Decision, Experiments, and Methods &
 Project. Opening it reads local files; it does not fetch data or train models.
-No formal result is selected until a completed Full run is promoted. Select a
-completed Smoke version explicitly to inspect the fixture pipeline. A frozen
+The default showcase opens the completed 002475 Full run; 601138 is also
+selectable. Select a Smoke version explicitly to inspect the fixture pipeline. A frozen
 Smoke viewer bundle is included in `outputs/demo/`; weights are omitted there,
 and rerunning Smoke produces weights and scalers in its run directory. Advanced
 research controls open the original workspace, where collection/training can
@@ -47,38 +47,80 @@ prominently. Smoke cannot be promoted to the formal showcase.
 
 ## Full: source-bound historical re-evaluation
 
-Prepare the four files described in `docs/data.md`, then run:
+The frozen four-symbol source snapshot is included. Each command uses a **fresh**
+output root; existing protocol files are preserved and cause an explicit error.
+These commands actually retrain 18 agents per target, each for 200 episodes.
+The result reports include both stocks rather than selecting the better one.
 
 ```bash
-python scripts/run_coursework.py --mode full --target-symbol 002475 \
-  --market work/002475_market.csv --target-news work/002475_news.csv \
-  --peer-news work/sector_peer_news.csv --peer-market work/sector_peer_market.csv \
-  --showcase
+python scripts/run_real_coursework.py \
+  --snapshot data/frozen/electronics_2023_2025_20261010 \
+  --target 002475 --output-root outputs/runs/reproduction_002475
+python scripts/run_real_coursework.py \
+  --snapshot data/frozen/electronics_2023_2025_20261010 \
+  --target 601138 --output-root outputs/runs/reproduction_601138
 ```
 
-Full uses the fixed protocol in `docs/methodology.md`. It fails when files,
-availability timestamps, source provenance, adequate coverage or matured
-training classes are missing. It never falls back to a different stock or
-the synthetic fixture. `--showcase` writes a pointer to that specific completed
-result version. Its hashes protect the reader against mixed or changed files.
-Two targets are run separately, retaining each manifest; the final cross-stock
-report must include both rather than selecting the better target.
+The saved manifests identify the fixed configuration, upstream implementation,
+actual code hash, source hashes, folds, seeds, matured labels and all checkpoint/
+scaler hashes. Results may differ across hardware/library platforms despite
+fixed seeds. No reduced-budget run is relabelled as Full. The immutable market
+cache speeds access; parity tests compare it with the original environment.
 
-No Full run was executed in this refinement: the required raw input snapshots
-are absent from the public repository. Full duration therefore remains unmeasured.
-
-## Independent NLP benchmark
+To collect a **new** snapshot rather than overwrite the included evidence:
 
 ```bash
-python -c "from pathlib import Path; from src.nlp.gold_label_evaluation import run_gold_label_evaluation; run_gold_label_evaluation(Path('work/gold_labels.csv'))"
+python scripts/collect_coursework_sources.py \
+  --start 2023-01-01 --end 2025-03-31 \
+  --destination work/new_source_snapshot
 ```
 
-Provide `text`, `gold_label` and preferably `split` (`train`/`test`). Labels are
-negative/neutral/positive. Use genuine manual labels, a recorded annotation
-rubric and near-duplicate review. FinBERT defaults to local cache only. Set
-`FINBERT_MODEL_NAME` and a pinned `FINBERT_MODEL_REVISION` after checking language
-and label mapping. `FINBERT_ALLOW_DOWNLOAD=1` permits an explicit model download.
-Missing/unsuitable checkpoints stay unavailable; they do not become neutral.
+Provider histories and qfq adjustments can change on recollection. Preserve
+both manifests; do not call a later download the original frozen input.
+Date-only disclosure availability is a documented end-of-public-date assumption.
+See [data provenance](data.md) and [real results](real_experiments.md).
+The generic four-input runner `scripts/run_coursework.py --mode full` remains
+available for independently supplied source-bound files.
+
+## Actual Chinese FinBERT inference
+
+The committed benchmark CSV preserves external human labels and the explicit
+444/149 split. Checkpoint weights are about 409 MB and remain outside Git.
+The downloader resolves the immutable revision and verifies weights; evaluation
+checks all six registry hashes and the gold CSV hash before fitting/inference.
+Use a new evaluation output directory to preserve the saved benchmark.
+
+```bash
+python scripts/download_finbert_chinese.py \
+  --destination work/finbert-tone-chinese
+python scripts/evaluate_finbert_chinese.py \
+  --checkpoint-directory work/finbert-tone-chinese \
+  --output outputs/runs/new_finbert_evaluation --device cpu
+```
+
+The evaluation fits LR only on 444 training texts, scores all three methods on
+149 shared test texts, then separately diagnoses unchanged FinBERT on all 593.
+CPU batch size is 8, maximum length 512 tokens and two PyTorch threads.
+The completed local script took 98.81 seconds; download time is excluded.
+Unavailable inference raises an error rather than returning neutral scores.
+The default English checkpoint in the legacy API is unsuitable for Chinese;
+this script explicitly sets the verified Chinese local model.
+
+External annotation does not prove independence from the checkpoint's private
+training corpus. Unknown overlap, 219 truncated texts, and document-versus-title
+scope are explained in [FinBERT evaluation](finbert_evaluation.md).
+
+## Saved evidence and figures
+
+```bash
+python scripts/validate_saved_evidence.py
+python scripts/build_real_evidence_figures.py
+```
+
+Validation independently recomputes saved ledger and NLP scores, checks hashes
+and population/configuration completeness. It requires no model download or
+retraining. GitHub CI performs this validation plus tests and synthetic Smoke;
+it does not pretend to repeat the full training or FinBERT inference.
 
 ## Checks and failures
 

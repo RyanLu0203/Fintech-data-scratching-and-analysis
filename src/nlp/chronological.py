@@ -74,11 +74,12 @@ def normalize_news(news: pd.DataFrame) -> pd.DataFrame:
     )
     if frame["text_key"].eq("").any():
         raise ValueError("Empty news text cannot be scored")
-    # Conservative availability: later duplicates must not backdate a story.
+    # Revisions of one provider ID use the latest timestamp. Distinct IDs with
+    # repeated text are retained here: a future repetition must not erase the
+    # earlier text from an already-frozen training window.
     return (
         frame.sort_values("available_at")
         .drop_duplicates(["symbol", "news_id"], keep="last")
-        .drop_duplicates(["symbol", "text_key"], keep="last")
         .reset_index(drop=True)
     )
 
@@ -149,9 +150,14 @@ def fit_frozen_peer_models(
     fit_end: pd.Timestamp,
     target_text_keys: set[str] | None = None,
 ) -> tuple[dict, dict, pd.DataFrame]:
-    peers = peer_news[
-        (peer_news["symbol"] != target_symbol) & (peer_news["available_at"] <= fit_end)
-    ].copy()
+    peers = (
+        peer_news[
+            (peer_news["symbol"] != target_symbol)
+            & (peer_news["available_at"] <= fit_end)
+        ]
+        .drop_duplicates(["symbol", "text_key"], keep="last")
+        .copy()
+    )
     if target_text_keys:
         peers = peers[~peers["text_key"].isin(target_text_keys)]
     if peers.empty:
@@ -182,7 +188,12 @@ def score_frozen_target(
     scored = map_news_to_sessions(
         target_news[target_news["available_at"] > fit_end], dates
     )
-    scored = scored.dropna(subset=["decision_date"]).copy()
+    scored = (
+        scored.dropna(subset=["decision_date"])
+        .sort_values("available_at")
+        .drop_duplicates(["symbol", "text_key"], keep="first")
+        .copy()
+    )
     training_keys = set().union(
         *(model.training_text_keys_ for model in models.values())
     )
