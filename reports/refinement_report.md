@@ -107,9 +107,8 @@ with a diagnostic-use notice. Output hashes reject incomplete/changed run files.
 - Current-document links and exported diagram/source paths were checked.
 
 Verification used the existing Python 3.9.6/macOS environment. Exact installed
-versions are in `requirements-validation.txt`; this does not claim a clean
-Python 3.11 installation. The new offline CI workflow uses those pins and CPU
-PyTorch. Remote CI success is reported only after an actual successful run.
+versions are in `requirements-validation.txt`. The new offline CI workflow uses those pins and CPU
+PyTorch. GitHub Actions [run 38042482465](https://github.com/RyanLu0203/Fintech-data-scratching-and-analysis/actions/runs/38042482465) subsequently passed in a fresh Linux/Python 3.11 environment: pinned installation, compilation, tests and the two-fold Smoke run. A fresh macOS installation and an installation from unrestricted lower bounds remain unverified.
 
 ## Remaining empirical and handover work
 
@@ -119,7 +118,7 @@ run the 200-episode comparisons and include every configured seed and fold.
 Complete the manual annotation rubric and independent test set, verify an
 appropriate checkpoint language/labels/revision, and perform real FinBERT
 inference. Confirm the original team contributions and complete the final
-course report/presentation around those actual results. A clean installation,
+course report/presentation around those actual results. A fresh macOS installation,
 release and optional social preview are separate later checks.
 
 The original report and notebooks retain historical context. Notebook outputs

@@ -21,4 +21,5 @@
   files require re-evaluation after these corrections.
 
 No real-data Full run, manual-label benchmark, verified Chinese FinBERT
-inference, release, clean installation or remote CI success is claimed.
+inference or release is claimed. The remote Linux/Python 3.11 install, tests
+and Smoke check subsequently passed in GitHub Actions.

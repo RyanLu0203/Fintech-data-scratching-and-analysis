@@ -41,7 +41,7 @@ state, training scaler and three actions; the extensions remain available.
 | M2 Data and accounting | Tested for targeted semantics | grain, availability, fee/overnight/final-session counterexamples |
 | M3 NLP and evaluation | Runner implemented; formal evidence pending | independent gold split and true per-fold fitting; real FinBERT/gold inputs absent |
 | M4 Results and demo | Smoke completed; real results pending | frozen reader and synthetic two-fold run; no formal market claim |
-| M5 Handover | Local package prepared | compilation/tests and browser review; clean installation and remote CI pending |
+| M5 Handover | Local package prepared | local checks and browser review; Linux/Python 3.11 CI install/tests/Smoke passed |
 
 The next empirical step is to freeze the real 002475/601138 source data,
 verify a suitable language checkpoint and complete the independent NLP and

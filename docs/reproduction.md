@@ -7,13 +7,14 @@ Use Python 3.11. From the repository root:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-validation.txt
 ```
 
 `requirements-validation.txt` records the installed package versions used for
-this local verification (Python 3.9.6 on macOS). It is evidence of that environment,
-not a claim that a clean Python 3.11 installation has been tested. CI installs
-the recorded package pins on Python 3.11, with CPU PyTorch. No personal installation
+this local verification (Python 3.9.6 on macOS). GitHub Actions also passed in a fresh
+Linux/Python 3.11 environment using these package pins and CPU PyTorch.
+The broader `requirements.txt` declares the stack; use the pins above to
+reproduce the verified versions. No personal installation
 path is needed by the project.
 
 ## Demo: frozen output reader
