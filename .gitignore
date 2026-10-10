@@ -24,6 +24,8 @@ outputs/
 outputs/*
 !outputs/model_upgrade/
 !outputs/model_upgrade/*
+!outputs/demo/
+!outputs/demo/**
 !outputs/system/
 outputs/system/*
 !outputs/system/gpt_diagnostics/

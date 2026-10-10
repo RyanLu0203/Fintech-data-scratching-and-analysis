@@ -30,6 +30,16 @@ def build_model() -> Pipeline:
     )
 
 
+def fit_logistic_sentiment(training: pd.DataFrame, text_column: str = "text", label_column: str = "label") -> Pipeline:
+    """Fit only on supplied training rows; evaluation never calls this on test rows."""
+    labels = training[label_column].astype(int)
+    if labels.nunique() < 2:
+        raise ValueError("Logistic sentiment needs at least two training classes")
+    model = build_model()
+    model.fit(training[text_column].fillna("").astype(str).tolist(), labels.tolist())
+    return model
+
+
 def score_with_logistic(news: pd.DataFrame, text_column: str = "text", label_column: str = "label") -> LogisticSentimentResult:
     """Train/evaluate when labels exist, otherwise use lexicon pseudo-labels."""
 

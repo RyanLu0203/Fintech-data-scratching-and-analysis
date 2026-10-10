@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+from sklearn.model_selection import train_test_split
 
 from src.config.paths import PROJECT_ROOT, STOCK_OUTPUT_ROOT
 from src.nlp.finbert_sentiment import FinBERTSentiment
 from src.nlp.lexicon_sentiment import score_texts
-from src.nlp.logistic_sentiment import score_with_logistic
+from src.nlp.logistic_sentiment import fit_logistic_sentiment
 
 GOLD_LABEL_FILENAMES = [
     "gold_labels.csv",
@@ -19,7 +21,7 @@ GOLD_LABEL_FILENAMES = [
     "manual_sentiment_labels.csv",
     "nlp_gold_labels.csv",
 ]
-LABEL_TO_INT = {"negative": -1, "neutral": 0, "positive": 1, -1: -1, 0: 0, 1: 1}
+LABEL_TO_INT = {"negative": -1, "neutral": 0, "positive": 1, "-1": -1, "0": 0, "1": 1, -1: -1, 0: 0, 1: 1}
 INT_TO_LABEL = {-1: "negative", 0: "neutral", 1: "positive"}
 
 
@@ -144,6 +146,9 @@ def run_gold_label_evaluation(
     final_path = output_dir / "nlp_model_comparison_final.csv"
     evaluation.to_csv(evaluation_path, index=False, encoding="utf-8-sig")
     evaluation.to_csv(final_path, index=False, encoding="utf-8-sig")
+    if "predictions" in evaluation.attrs:
+        evaluation.attrs["predictions"].to_csv(output_dir / "nlp_gold_test_predictions.csv", index=False, encoding="utf-8-sig")
+        evaluation.attrs["confusion"].to_csv(output_dir / "nlp_gold_test_confusion.csv", index=False, encoding="utf-8-sig")
     return {
         "gold_label_file": str(gold_label_path) if gold_label_path else "",
         "template_csv": template_path,
@@ -156,19 +161,19 @@ def run_gold_label_evaluation(
 def evaluate_models_on_gold(labels: pd.DataFrame) -> pd.DataFrame:
     if labels.empty:
         return pd.DataFrame()
-    texts = labels["text"].fillna("").astype(str).tolist()
-    y_true = labels["gold_label_int"].astype(int).tolist()
+    training, test = split_gold_labels(labels)
+    texts = test["text"].fillna("").astype(str).tolist()
+    y_true = test["gold_label_int"].astype(int).tolist()
+    predictions = {"lexicon": score_texts(texts)}
     rows = []
-    rows.append(_metrics_row("lexicon", y_true, score_texts(texts), "gold_label_eval", "ok"))
-
-    logistic_input = labels[["text", "gold_label_int"]].rename(columns={"gold_label_int": "label"})
-    logistic_result = score_with_logistic(logistic_input, text_column="text", label_column="label")
-    rows.append(_metrics_row("logistic_tfidf", y_true, logistic_result.scores, "gold_label_eval", logistic_result.evaluation.get("status", "ok")))
-
+    if training.empty or training["gold_label_int"].nunique() < 2:
+        rows.append(_unavailable_row("logistic_tfidf", "insufficient_independent_training_labels"))
+    else:
+        model = fit_logistic_sentiment(training.rename(columns={"gold_label_int": "label"}))
+        predictions["logistic_tfidf"] = model.predict(texts).astype(int).tolist()
     finbert_result = FinBERTSentiment().score(texts)
     if finbert_result.status == "ok":
-        finbert_pred = [_score_to_int(score) for score in finbert_result.scores]
-        rows.append(_metrics_row("finbert", y_true, finbert_pred, "gold_label_eval", "ok"))
+        predictions["finbert"] = [LABEL_TO_INT[label] for label in finbert_result.labels]
     else:
         rows.append(
             {
@@ -184,7 +189,58 @@ def evaluate_models_on_gold(labels: pd.DataFrame) -> pd.DataFrame:
                 "error": finbert_result.error,
             }
         )
-    return pd.DataFrame(rows)
+    confusion_rows = []
+    prediction_frame = test[["text", "gold_label_int"]].copy()
+    for method, predicted in predictions.items():
+        rows.append(_metrics_row(method, y_true, predicted, "independent_gold_test", "ok"))
+        prediction_frame[method] = predicted
+        matrix = confusion_matrix(y_true, predicted, labels=[-1, 0, 1])
+        for i, true_label in enumerate([-1, 0, 1]):
+            for j, predicted_label in enumerate([-1, 0, 1]):
+                confusion_rows.append({"method": method, "true_label": true_label, "predicted_label": predicted_label, "count": int(matrix[i, j])})
+    result = pd.DataFrame(rows)
+    result["training_rows"] = len(training)
+    result["test_rows"] = len(test)
+    result["test_negative"] = y_true.count(-1)
+    result["test_neutral"] = y_true.count(0)
+    result["test_positive"] = y_true.count(1)
+    result.attrs["predictions"] = prediction_frame
+    result.attrs["confusion"] = pd.DataFrame(confusion_rows)
+    return result
+
+
+def split_gold_labels(labels: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep normalized duplicate texts together before any fitting or scoring.
+
+    An explicit split column (train/test) controls the benchmark when supplied.
+    Otherwise use a deterministic 75/25 split; small sets cannot train LR.
+    Semantic near-duplicate review still requires the human annotators.
+    """
+    data = labels.copy()
+    data["text_key"] = data["text"].astype(str).map(lambda text: re.sub(r"[\W_]+", "", text.casefold()))
+    data = data[data["text_key"].ne("")]
+    if data.groupby("text_key")["gold_label_int"].nunique().gt(1).any():
+        raise ValueError("Duplicate gold texts have conflicting labels")
+    if "split" in data:
+        data["split"] = data["split"].astype(str).str.strip().str.lower()
+        if not data["split"].isin(["train", "test"]).all():
+            raise ValueError("Gold split must be train or test")
+        if data.groupby("text_key")["split"].nunique().gt(1).any():
+            raise ValueError("Duplicate gold text appears in both train and test")
+        data = data.drop_duplicates("text_key")
+        training, test = data[data["split"] == "train"], data[data["split"] == "test"]
+        if test.empty:
+            raise ValueError("Gold benchmark requires independent test rows")
+        return training.copy(), test.copy()
+    data = data.drop_duplicates("text_key")
+    if len(data) < 12 or data["gold_label_int"].nunique() < 2:
+        return data.iloc[0:0].copy(), data.copy()
+    counts = data["gold_label_int"].value_counts()
+    return train_test_split(data, test_size=0.25, random_state=42, stratify=data["gold_label_int"] if counts.min() >= 2 else None)
+
+
+def _unavailable_row(method: str, status: str) -> dict[str, object]:
+    return {"method": method, "evaluation_type": "skipped", "status": status, **{key: np.nan for key in ["accuracy", "precision_macro", "recall_macro", "macro_f1", "weighted_f1"]}}
 
 
 def _load_gold_labels(path: Path) -> pd.DataFrame:

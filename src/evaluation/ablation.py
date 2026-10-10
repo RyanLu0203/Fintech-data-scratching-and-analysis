@@ -574,6 +574,10 @@ def _metrics_from_curve(
 ) -> dict[str, object]:
     values = pd.to_numeric(curve["portfolio_value"], errors="coerce").dropna()
     final_value = float(values.iloc[-1]) if not values.empty else np.nan
+    session_count = len(values)
+    # Curves contain end-of-session marks. Initial cash is a separate NAV
+    # observation, so the first fee/loss is part of every risk metric.
+    values = pd.concat([pd.Series([initial_cash]), values], ignore_index=True)
     returns = portfolio_returns(values)
     exposure = 1.0 if exposure_ratio is None and experiment == "buy_and_hold" else exposure_ratio
     return {
@@ -594,7 +598,7 @@ def _metrics_from_curve(
         "worst_day_return": float(returns.min()) if not returns.empty else np.nan,
         "win_rate": win_rate,
         "number_of_trades": trades,
-        "trade_frequency": trades / max(len(values), 1) if len(values) else np.nan,
+        "trade_frequency": trades / max(session_count, 1) if session_count else np.nan,
         "exposure_ratio": exposure,
         "avg_reward": avg_reward,
         "profit_factor": profit_factor,

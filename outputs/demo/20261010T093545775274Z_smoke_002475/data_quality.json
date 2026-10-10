@@ -1,0 +1,20 @@
+{
+  "market_grain": "one symbol per session",
+  "market_rows": 70,
+  "sessions": 70,
+  "market_start": "2025-01-02",
+  "market_end": "2025-04-09",
+  "target_news_rows": 24,
+  "peer_news_rows": 140,
+  "peer_symbols": [
+    "002241",
+    "601138"
+  ],
+  "target_news_first_available": "2025-01-02 10:00:00+00:00",
+  "target_news_last_available": "2025-04-09 10:00:00+00:00",
+  "nulls": {
+    "market": 0,
+    "target_news": 0,
+    "peer_news": 0
+  }
+}
