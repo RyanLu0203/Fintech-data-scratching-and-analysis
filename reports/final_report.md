@@ -1,4 +1,4 @@
-> Revision notice — 2026-10-10: this is preserved historical coursework material. Earlier result/accounting claims require re-evaluation after the state, reward and evaluation corrections. Current methods and evidence status are in [refinement_report.md](refinement_report.md).
+> Revision notice — 2026-10-10: this is preserved historical coursework material. Earlier result/accounting claims require re-evaluation after the state, reward and evaluation corrections. Current empirical evidence is in the [real-data report](../docs/real_experiments.md) and [Chinese FinBERT evaluation](../docs/finbert_evaluation.md); implementation corrections are in [refinement_report.md](refinement_report.md).
 
 # NLP-Driven Reinforcement Learning Trading Platform Final Report
 

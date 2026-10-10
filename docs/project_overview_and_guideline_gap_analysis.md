@@ -1,3 +1,5 @@
+> Historical gap analysis from 2026-05-01. Current real-data Full runs and Chinese FinBERT inference are complete; see [real experiments](real_experiments.md) and [FinBERT evaluation](finbert_evaluation.md). Earlier pending statements below describe the old snapshot.
+
 # NLP-RL Trading Platform 项目全景与 Guideline 缺口分析
 
 生成日期：2026-05-01  

@@ -1,0 +1,58 @@
+{
+  "market_grain": "one symbol per session",
+  "market_rows": 541,
+  "sessions": 541,
+  "market_start": "2023-01-03",
+  "market_end": "2025-03-31",
+  "target_news_rows": 363,
+  "peer_news_rows": 807,
+  "peer_symbols": [
+    "002241",
+    "601231"
+  ],
+  "target_news_sources": {
+    "eastmoney_disclosure_title": 363
+  },
+  "peer_news_by_symbol": {
+    "601231": 421,
+    "002241": 386
+  },
+  "target_monthly_titles": {
+    "2023-01": 4,
+    "2023-02": 24,
+    "2023-03": 6,
+    "2023-04": 32,
+    "2023-05": 8,
+    "2023-06": 18,
+    "2023-07": 4,
+    "2023-08": 11,
+    "2023-10": 17,
+    "2023-11": 10,
+    "2023-12": 15,
+    "2024-01": 6,
+    "2024-02": 1,
+    "2024-03": 16,
+    "2024-04": 27,
+    "2024-05": 3,
+    "2024-06": 44,
+    "2024-07": 21,
+    "2024-08": 12,
+    "2024-09": 8,
+    "2024-10": 19,
+    "2024-11": 4,
+    "2024-12": 14,
+    "2025-01": 17,
+    "2025-02": 4,
+    "2025-03": 18
+  },
+  "availability_policies": {
+    "after_end_of_public_notice_date": 363
+  },
+  "target_news_first_available": "2023-01-04 16:00:00+00:00",
+  "target_news_last_available": "2025-03-24 16:00:00+00:00",
+  "nulls": {
+    "market": 0,
+    "target_news": 363,
+    "peer_news": 807
+  }
+}

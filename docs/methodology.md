@@ -84,7 +84,7 @@ counterfactual holding-value experiments, not correct n-step Bellman returns.
 
 ## Independent NLP benchmark
 
-`gold_label_evaluation.py` uses a shared independent test set for lexicon, LR
+`gold_label_evaluation.py` uses a shared held-out test set for lexicon, LR
 and FinBERT. An explicit `split` column (`train` / `test`) is preferred; without
 it, sufficiently large labelled data uses a fixed 75/25 split. Normalized text
 duplicates cannot cross the boundary. Small sets leave LR unavailable rather
@@ -97,8 +97,12 @@ default checkpoint as English, with positive/neutral/negative labels. Chinese
 input therefore needs a verified suitable checkpoint. Revision, language and
 label mapping must be checked; unavailable inference returns missing values.
 The core weak-label experiment does not replace the course's FinBERT benchmark.
-Neither real FinBERT inference nor a manually labelled benchmark was completed
-in this refinement because those inputs are absent.
+Actual Chinese FinBERT inference now uses a pinned suitable checkpoint and
+CFBenchmark's external human consensus labels. The common test contains 149
+texts; LR fits only the other 444. Checkpoint training texts are private, so
+its overlap with this benchmark cannot be verified. “External” does not imply
+verified independence from pretraining. See [FinBERT evaluation](finbert_evaluation.md)
+for model/data revisions, results, truncation and this limitation.
 
 ## Evidence status
 
@@ -106,6 +110,10 @@ The included Smoke run tests orchestration on explicitly synthetic data, with
 two episodes per group. It supports implementation checks only. May 2026
 diagnostic CSVs predate the accounting/state corrections and are preserved as
 history. They are excluded from the new main-results reader. A formal finding
-requires real source-bound inputs, complete Full runs and the independent NLP
-benchmark. Run manifests record inputs, configuration, cutoffs, seeds, code
+requires real source-bound inputs, complete Full runs and the external NLP
+benchmark. Both target Full runs and actual Chinese inference are now complete;
+the [real report](real_experiments.md) includes all seeds/folds and limitations.
+Source dates are conservatively mapped to availability bounds, not represented
+as observed publication times. Retrospective qfq is a frozen adjustment snapshot.
+Run manifests record inputs, configuration, cutoffs, seeds, code
 hashes and output hashes; changed or incomplete outputs fail the reader check.

@@ -1,5 +1,13 @@
 # Coursework refinement — 2026-10-10
 
+> Historical first-pass addendum. The empirical work described as pending below
+> has since been completed in the [real-data report](../docs/real_experiments.md)
+> and [Chinese FinBERT evaluation](../docs/finbert_evaluation.md): 36 × 200-episode
+> agents, both targets/all folds/seeds, and actual external human-label inference.
+> Those reports supersede this addendum's empirical status; old results remain
+> preserved history. New project-title annotation and prospective validation
+> remain separate future work.
+
 ## Outcome and evidence boundary
 
 The project now has a research-oriented homepage, three distinct system/journey/

@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "run_id": "20261010T110624246574Z_full_601138",
+  "status": "complete",
+  "mode": "full",
+  "evidence_status": "historical_re_evaluation",
+  "created_at": "2026-10-10T11:06:24.246953+00:00",
+  "config": {
+    "target_symbol": "601138",
+    "mode": "full",
+    "episodes": 200,
+    "seeds": [
+      42,
+      123,
+      2024
+    ],
+    "nlp_days": 126,
+    "train_days": 252,
+    "test_days": 63,
+    "folds": 2,
+    "initial_cash": 1000000.0,
+    "transaction_cost": 0.001
+  },
+  "upstream_commit": "b0660a6bf849bd241f0d5fec67cc700e707222ef",
+  "accounting_version": "previous_close_to_current_close_v2",
+  "protocol": "NLP prefix -> RL training -> untouched test; frozen scalers and models per fold",
+  "finbert_status": "not_used_in_core_weak_label_comparison; independent gold benchmark required",
+  "input_hashes": {
+    "target_market": "c192ee53d4d5c24a5aef0b7420fbf8739188937c4c968d58d1c9209d2aabf4f0",
+    "target_news": "96717e09abd5c41164f02ae72562c4cd247de452d50c5ac45e72f84533c1ec2a",
+    "peer_news": "3be81822c025c87a370e53178a4e2a7720378a5dd7731debb5ca301e2359c808",
+    "peer_market": "26cd6acb9d61c0fb7aec742fcef5e28685441f3474faaeb055fa638a2f2645c9"
+  },
+  "folds": [
+    {
+      "nlp_fit_end": "2023-07-12T07:00:00+00:00",
+      "sentiment_training_rows": 179,
+      "impact_training_rows": 178,
+      "peer_symbols": [
+        "002241",
+        "601231"
+      ],
+      "label_end_at_max": "2023-07-11T07:00:00+00:00",
+      "sentiment_labels": "lexicon weak labels",
+      "impact_labels": "3-session peer close return, thresholds +/-1.5%",
+      "fold": 1,
+      "train_start": "2023-07-13",
+      "train_end": "2024-07-25",
+      "test_start": "2024-07-26",
+      "test_end": "2024-10-31",
+      "target_news_test_rows": 33
+    },
+    {
+      "nlp_fit_end": "2023-10-17T07:00:00+00:00",
+      "sentiment_training_rows": 305,
+      "impact_training_rows": 288,
+      "peer_symbols": [
+        "002241",
+        "601231"
+      ],
+      "label_end_at_max": "2023-10-17T07:00:00+00:00",
+      "sentiment_labels": "lexicon weak labels",
+      "impact_labels": "3-session peer close return, thresholds +/-1.5%",
+      "fold": 2,
+      "train_start": "2023-10-18",
+      "train_end": "2024-10-31",
+      "test_start": "2024-11-01",
+      "test_end": "2025-02-06",
+      "target_news_test_rows": 18
+    }
+  ],
+  "files": {
+    "metrics": "metrics.csv",
+    "paired": "paired_differences.csv",
+    "trades": "trading_logs.csv",
+    "training": "training_rewards.csv",
+    "signals": "daily_signals.csv",
+    "trace": "news_trace.csv",
+    "profile": "data_quality.json",
+    "peer_labels_fold_1": "peer_labels_fold_1.csv",
+    "peer_labels_fold_2": "peer_labels_fold_2.csv"
+  },
+  "code_sha256": "d91cd379fbb14c5689f94cdebf91b424e01643167ddaf87dee15ea7fb15cc4d1",
+  "dqn": {
+    "variant": "vanilla_dqn",
+    "state_columns": [
+      "price",
+      "MA50",
+      "MA200",
+      "RSI",
+      "MACD",
+      "position",
+      "cash",
+      "nlp_signal_score"
+    ],
+    "action_mode": "discrete_trade",
+    "hidden_layers": [
+      64,
+      64
+    ],
+    "reward_variant": "one_day_return",
+    "loss": "huber",
+    "gamma": 0.99,
+    "learning_rate": 0.001,
+    "flat_penalty_enabled": false,
+    "trade_exploration_bonus_enabled": false,
+    "scaling": "fit on RL training window; frozen for test"
+  },
+  "sector_mapping_sha256": "276620f27cd2fc57ba316baace3c4e5edccc71bdb8e8e46ba1824ded12fc1052",
+  "file_sha256": {
+    "metrics": "268890c56995647d6ba18f6db7429aaaeb87cd9022342fc8b345482307d70f94",
+    "paired": "b27a9b21fb88290f852beaad0b13464ebe1890e1b8af659e6b646ac403cd2ba8",
+    "trades": "b778dff484ab06a16eb86040b5e9770b2ef40e2e8ea5bcc75a390041760d4522",
+    "training": "aca014d007ece42e300c7af989ae553150c17545c8c6a9d2dfd74835ef9a78e5",
+    "signals": "586292a20ba63f6a7ec93fd710abf13a4577029a0df8d59d8f86e719552cd23c",
+    "trace": "9cd8cefbacebcbb8a4094807d6c0179413f3d3bdca4da0338525bbb2f1a0cffa",
+    "profile": "15a51d8c49b250375b8a9d6ab8e1ddd67066e6dbfcf1ecceefaa22f3849cc7c4",
+    "peer_labels_fold_1": "3560c47be6465ef9e2806b5c309027587f6414ca4113f1904f165ae15fd8febd",
+    "peer_labels_fold_2": "e4b08b94b111e2b10434b1c34e5bdbd35461bed65718db3be9778859a59e728d"
+  },
+  "model_sha256": {
+    "fold_1/seed_123/dqn_with_sector_impact_nlp_dqn_model.pt": "ef1ef0c32f69d529cc973a0242a7c9349619bffad349f4ee087a6ae4e89af026",
+    "fold_1/seed_123/dqn_with_sector_impact_nlp_state_scaler.json": "17e641257aa509a827b805fd23e7bd06f403121a2f606a586914b9a95d804245",
+    "fold_1/seed_123/dqn_with_sector_sentiment_nlp_dqn_model.pt": "c54710f481b6821cb62d2a249927b8a865929eea9e9be7747ef4fe31cdf14063",
+    "fold_1/seed_123/dqn_with_sector_sentiment_nlp_state_scaler.json": "c6d0618793eb03a8df4e58c3126672f04ddebfecb46d845b36dc3b49ec61d91d",
+    "fold_1/seed_123/dqn_without_nlp_dqn_model.pt": "d6cbfccc21ea3db65d60902526a0c76195c77da175ea0b83a3db0710f77cf127",
+    "fold_1/seed_123/dqn_without_nlp_state_scaler.json": "1cf79e7022201be02dab518fcc4f281e29a15a0f3e31c1fef8b2e2ab6b6cc56c",
+    "fold_1/seed_2024/dqn_with_sector_impact_nlp_dqn_model.pt": "732cfce0640dde568be0315a14f92739bb8c68333a0e79c5c461243d3062b25d",
+    "fold_1/seed_2024/dqn_with_sector_impact_nlp_state_scaler.json": "17e641257aa509a827b805fd23e7bd06f403121a2f606a586914b9a95d804245",
+    "fold_1/seed_2024/dqn_with_sector_sentiment_nlp_dqn_model.pt": "578c6fd4e1ee0057956ecc3c3bf0a57ef09770e60a3f39c84cab8001db6cee8d",
+    "fold_1/seed_2024/dqn_with_sector_sentiment_nlp_state_scaler.json": "c6d0618793eb03a8df4e58c3126672f04ddebfecb46d845b36dc3b49ec61d91d",
+    "fold_1/seed_2024/dqn_without_nlp_dqn_model.pt": "def2b7e3ffa16a3336406fda3bd6409833a8b0f1c06f05dcdbcaa2e82f491a68",
+    "fold_1/seed_2024/dqn_without_nlp_state_scaler.json": "1cf79e7022201be02dab518fcc4f281e29a15a0f3e31c1fef8b2e2ab6b6cc56c",
+    "fold_1/seed_42/dqn_with_sector_impact_nlp_dqn_model.pt": "7c960f98bbbf16ed01500d850c9aecb2be15957dfe20dbdb7f980741dd4cac92",
+    "fold_1/seed_42/dqn_with_sector_impact_nlp_state_scaler.json": "17e641257aa509a827b805fd23e7bd06f403121a2f606a586914b9a95d804245",
+    "fold_1/seed_42/dqn_with_sector_sentiment_nlp_dqn_model.pt": "363a94a50318a3cc9764c45f84e83709bd7712e4570ed94b6c984a5786a29799",
+    "fold_1/seed_42/dqn_with_sector_sentiment_nlp_state_scaler.json": "c6d0618793eb03a8df4e58c3126672f04ddebfecb46d845b36dc3b49ec61d91d",
+    "fold_1/seed_42/dqn_without_nlp_dqn_model.pt": "acceec2afda146fbf3fb6321642285f677136463ed65b535df153f864789b570",
+    "fold_1/seed_42/dqn_without_nlp_state_scaler.json": "1cf79e7022201be02dab518fcc4f281e29a15a0f3e31c1fef8b2e2ab6b6cc56c",
+    "fold_2/seed_123/dqn_with_sector_impact_nlp_dqn_model.pt": "9bd569c2804b9bca8e05addf0f802c35d8e3c5856c812a0ac15879f0177dfac2",
+    "fold_2/seed_123/dqn_with_sector_impact_nlp_state_scaler.json": "0a9c6731d9591f17bff33fc710af3df96bce3943e7ae0db7ca70c3886a23a8ac",
+    "fold_2/seed_123/dqn_with_sector_sentiment_nlp_dqn_model.pt": "7925e42e9dc343f045c445f6467f6569fa89b85acf123fad397c15df974c2db8",
+    "fold_2/seed_123/dqn_with_sector_sentiment_nlp_state_scaler.json": "d85a9a8cee70be835ce6e8b6eb2ded0303a899346fef571f8f2f74d84d88c2f7",
+    "fold_2/seed_123/dqn_without_nlp_dqn_model.pt": "6bea6dc0e80d1de90b92d515b08838c98976ccdd258fcc215190a4ec093fe49e",
+    "fold_2/seed_123/dqn_without_nlp_state_scaler.json": "55d510f97c915cdd690c676be15769c36a9f40a9a130eabd4b85f1f54ee547a6",
+    "fold_2/seed_2024/dqn_with_sector_impact_nlp_dqn_model.pt": "f74b80d211fd3047f3871411b9fff258fcaa5bc06d97a68a320cfb0d8dafb1c7",
+    "fold_2/seed_2024/dqn_with_sector_impact_nlp_state_scaler.json": "0a9c6731d9591f17bff33fc710af3df96bce3943e7ae0db7ca70c3886a23a8ac",
+    "fold_2/seed_2024/dqn_with_sector_sentiment_nlp_dqn_model.pt": "0697cd91cc359a5c1467aef8a0a44d5d54c30c23ed5c629012d4fc7e5dc9a681",
+    "fold_2/seed_2024/dqn_with_sector_sentiment_nlp_state_scaler.json": "d85a9a8cee70be835ce6e8b6eb2ded0303a899346fef571f8f2f74d84d88c2f7",
+    "fold_2/seed_2024/dqn_without_nlp_dqn_model.pt": "1bcda1432331f3efcee891604cfd6e7dfb127e93c4d5766692dcdf2ab2810700",
+    "fold_2/seed_2024/dqn_without_nlp_state_scaler.json": "55d510f97c915cdd690c676be15769c36a9f40a9a130eabd4b85f1f54ee547a6",
+    "fold_2/seed_42/dqn_with_sector_impact_nlp_dqn_model.pt": "13d45a42276afb092d331754b683a97f89259c62da620bd4ad80421f3546b00b",
+    "fold_2/seed_42/dqn_with_sector_impact_nlp_state_scaler.json": "0a9c6731d9591f17bff33fc710af3df96bce3943e7ae0db7ca70c3886a23a8ac",
+    "fold_2/seed_42/dqn_with_sector_sentiment_nlp_dqn_model.pt": "1345f7a3debe1fca6b4f36814c3c2cb6bb01ea9c89e7212da12fbbecbc136f47",
+    "fold_2/seed_42/dqn_with_sector_sentiment_nlp_state_scaler.json": "d85a9a8cee70be835ce6e8b6eb2ded0303a899346fef571f8f2f74d84d88c2f7",
+    "fold_2/seed_42/dqn_without_nlp_dqn_model.pt": "0e6b1e156d5a0289443b8f3e75e8d036de76726859476e67304cdc553209a8a7",
+    "fold_2/seed_42/dqn_without_nlp_state_scaler.json": "55d510f97c915cdd690c676be15769c36a9f40a9a130eabd4b85f1f54ee547a6"
+  },
+  "source_snapshot": {
+    "schema_version": 1,
+    "start": "2023-01-01",
+    "end": "2025-03-31",
+    "symbols": [
+      "002475",
+      "601138",
+      "002241",
+      "601231"
+    ],
+    "fetched_at": "2026-10-10T10:53:55.036188+00:00",
+    "requests": [
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz002475%2Cday%2C2023-01-01%2C2024-05-15%2C560%2Cqfq",
+        "file": "raw/002475_market_0.json",
+        "sha256": "5bf664fba9f0939f7d919a6cbd4eee10814688e3a0ec87b1c135f0ee641f9a21",
+        "fetched_at": "2026-10-10T10:53:55.157101+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz002475%2Cday%2C2024-05-16%2C2025-03-31%2C560%2Cqfq",
+        "file": "raw/002475_market_1.json",
+        "sha256": "dbcb12dc28d49f00cb04588e76f74d92cc871595bdb51e2c99b0629a53cbaa27",
+        "fetched_at": "2026-10-10T10:53:55.272431+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=002475&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002475_announcements_1.json",
+        "sha256": "5b1e8cacaea1a862b3fdc24b275e978f64466043173fcd855bc81ee769359145",
+        "fetched_at": "2026-10-10T10:53:55.717361+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=2&ann_type=A&client_source=web&stock_list=002475&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002475_announcements_2.json",
+        "sha256": "645d8a737219d535749846971762ce273b6c23f503ade50e07fd482a1e618d6f",
+        "fetched_at": "2026-10-10T10:53:56.236501+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=3&ann_type=A&client_source=web&stock_list=002475&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002475_announcements_3.json",
+        "sha256": "bde6de9119cae08612c8d6af2fe9e340199b5c1f7d5251442c965698e2d1a19f",
+        "fetched_at": "2026-10-10T10:53:56.590599+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=4&ann_type=A&client_source=web&stock_list=002475&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002475_announcements_4.json",
+        "sha256": "9425cba04c1b82a05e2abb7bf13a1a686e9fc6e799fbbcdae91fb1dffc4c792f",
+        "fetched_at": "2026-10-10T10:53:56.924966+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh601138%2Cday%2C2023-01-01%2C2024-05-15%2C560%2Cqfq",
+        "file": "raw/601138_market_0.json",
+        "sha256": "2d74352ffb69c8385a216f408e746f0132cc055e3d98b03fc2005f4085422003",
+        "fetched_at": "2026-10-10T10:53:57.120321+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh601138%2Cday%2C2024-05-16%2C2025-03-31%2C560%2Cqfq",
+        "file": "raw/601138_market_1.json",
+        "sha256": "e6da58e962b1b29bccacb500db22a9270b7431ad0a4e297151e7f8183568eaf6",
+        "fetched_at": "2026-10-10T10:53:57.240221+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=601138&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601138_announcements_1.json",
+        "sha256": "3c0247b96e2d100af824b69eb71891e20eb70ff2e3e04beddd1736a87b53a536",
+        "fetched_at": "2026-10-10T10:53:57.574271+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=2&ann_type=A&client_source=web&stock_list=601138&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601138_announcements_2.json",
+        "sha256": "a4602270b80384de86ef453d23a8f840f2367f5227bd97a4c72927fb828f019a",
+        "fetched_at": "2026-10-10T10:53:57.935912+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=3&ann_type=A&client_source=web&stock_list=601138&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601138_announcements_3.json",
+        "sha256": "07699973951ab02c0cb11513af0d95a8190434bd451948d1f4964458b0f3e5ea",
+        "fetched_at": "2026-10-10T10:53:58.337708+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=4&ann_type=A&client_source=web&stock_list=601138&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601138_announcements_4.json",
+        "sha256": "0d28e2fc69f7390e48a045fc1af871ae4c320aec9b52f85724460a5e738ca329",
+        "fetched_at": "2026-10-10T10:53:58.657527+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz002241%2Cday%2C2023-01-01%2C2024-05-15%2C560%2Cqfq",
+        "file": "raw/002241_market_0.json",
+        "sha256": "e07d387c2269c5efbc8b633ce98b7e4aea535c983c5101460ad243a24ba99303",
+        "fetched_at": "2026-10-10T10:53:58.788598+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sz002241%2Cday%2C2024-05-16%2C2025-03-31%2C560%2Cqfq",
+        "file": "raw/002241_market_1.json",
+        "sha256": "40ccc1beb2f690f57602e3f97c1e6925682ee2dac9493d22d54eff8259a0347a",
+        "fetched_at": "2026-10-10T10:53:58.912734+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=002241&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002241_announcements_1.json",
+        "sha256": "62e0eb4476c13e0aff55c04b4390b65b41816c7618c364d8edf1ca966aa80782",
+        "fetched_at": "2026-10-10T10:53:59.323793+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=2&ann_type=A&client_source=web&stock_list=002241&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002241_announcements_2.json",
+        "sha256": "9b4a5c20c0751367210239b876cc7189a2a71a5d686448060006769b8cf7dd26",
+        "fetched_at": "2026-10-10T10:53:59.685128+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=3&ann_type=A&client_source=web&stock_list=002241&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002241_announcements_3.json",
+        "sha256": "dcd784daa3c1428c6a097dc935e789db02c8e0de7fdf62fb2da5c72564773fa4",
+        "fetched_at": "2026-10-10T10:54:00.008914+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=4&ann_type=A&client_source=web&stock_list=002241&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/002241_announcements_4.json",
+        "sha256": "0481db604a6d028bcd31829d941d47e753e397355eaeea82e2ca86bc05a18738",
+        "fetched_at": "2026-10-10T10:54:00.426211+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh601231%2Cday%2C2023-01-01%2C2024-05-15%2C560%2Cqfq",
+        "file": "raw/601231_market_0.json",
+        "sha256": "619e1a9eba889408ea6b4c3f53ca0b80081d58988fb2724f4584826999f3a65b",
+        "fetched_at": "2026-10-10T10:54:00.623928+00:00"
+      },
+      {
+        "url": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh601231%2Cday%2C2024-05-16%2C2025-03-31%2C560%2Cqfq",
+        "file": "raw/601231_market_1.json",
+        "sha256": "cd9b8bfaffacbc66a81104bfafe13d439a7d2481c9b428fa9b7d699313d12847",
+        "fetched_at": "2026-10-10T10:54:00.743625+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=601231&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601231_announcements_1.json",
+        "sha256": "ad6b7aa5d54d712f6fe090afbd0b1982177bfcd40e1ff357f4399c97f2a8ed8e",
+        "fetched_at": "2026-10-10T10:54:01.139030+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=2&ann_type=A&client_source=web&stock_list=601231&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601231_announcements_2.json",
+        "sha256": "c36ca9538e8fe04650a543afbccbc32941554193cd381e288ee53b3b18197340",
+        "fetched_at": "2026-10-10T10:54:01.486688+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=3&ann_type=A&client_source=web&stock_list=601231&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601231_announcements_3.json",
+        "sha256": "bc1221f8277cf15a1b3c9500d7097511624e321268a54dd61bc13a758630ff9c",
+        "fetched_at": "2026-10-10T10:54:02.404909+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=4&ann_type=A&client_source=web&stock_list=601231&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601231_announcements_4.json",
+        "sha256": "de030546328fbd07a0a86909c3868f3a8e444b50267679d6f3116bf4cdac70fc",
+        "fetched_at": "2026-10-10T10:54:02.848524+00:00"
+      },
+      {
+        "url": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=5&ann_type=A&client_source=web&stock_list=601231&begin_time=2023-01-01&end_time=2025-03-31",
+        "file": "raw/601231_announcements_5.json",
+        "sha256": "7db24efcebf593814792ccbf9ff78d4d547aaa3fe2cb229ca7abceba83e2090d",
+        "fetched_at": "2026-10-10T10:54:03.226800+00:00"
+      }
+    ],
+    "profiles": [
+      {
+        "symbol": "002475",
+        "market_rows": 541,
+        "news_rows": 363,
+        "provider_records": 363,
+        "provider_total_hits": 363,
+        "exclusions": []
+      },
+      {
+        "symbol": "601138",
+        "market_rows": 541,
+        "news_rows": 319,
+        "provider_records": 319,
+        "provider_total_hits": 319,
+        "exclusions": []
+      },
+      {
+        "symbol": "002241",
+        "market_rows": 541,
+        "news_rows": 386,
+        "provider_records": 386,
+        "provider_total_hits": 386,
+        "exclusions": []
+      },
+      {
+        "symbol": "601231",
+        "market_rows": 541,
+        "news_rows": 421,
+        "provider_records": 421,
+        "provider_total_hits": 421,
+        "exclusions": []
+      }
+    ],
+    "availability_policy": "precise display_time when present; otherwise after the entire public notice date (00:00 of following calendar day); never before production time",
+    "scope": "retrospective provider qfq OHLCV and disclosure titles; not a complete media-news archive",
+    "file_sha256": {
+      "002241_market.csv": "7527c5d3b614beb97d2f654d6bfc1a589e58f1723f44e7754fe666d3a83e72c0",
+      "002241_news.csv": "5112dad8691cb6c5066d0112cd1333f9de71086bef4b80bc7bef7bce1dbc0ea5",
+      "002475_market.csv": "4112134da4aae7ce8d4171bc6eec34bb8c5ab9634f5c9c0f5ab6ab693e451d13",
+      "002475_news.csv": "510f3f395de59f7cf6101261268bdc4eb82b877138079907ca22f70f86e078b9",
+      "601138_market.csv": "c192ee53d4d5c24a5aef0b7420fbf8739188937c4c968d58d1c9209d2aabf4f0",
+      "601138_news.csv": "3125835485f01ad9d4094aaadbbccfe41c315a11107438e742686db54303edd6",
+      "601231_market.csv": "b0c7b6d9a2284a22ce8acead0441de908333e23fa4aaf60dcc9651476562686f",
+      "601231_news.csv": "c0b45742e1b0a0039a3256acb0e8dfc1a7d1f3e1b2440cb42a396d00e5899e16"
+    }
+  },
+  "source_manifest_sha256": "228c53a51596cd4e564cabe761031e51b92b82fbdd90c218068364ed74f02afb",
+  "protocol_file": "protocol_601138.json",
+  "runtime": {
+    "torch": "2.8.0",
+    "torch_threads": 1,
+    "device": "cpu"
+  },
+  "limitations": [
+    "disclosure titles, not complete media news",
+    "date-only disclosure availability delayed to following calendar day",
+    "retrospective qfq price snapshot; adjusted share units and dividend treatment are approximations",
+    "simplified integer-share execution excludes A-share lots, T+1 sellability, limits, slippage and stamp-tax asymmetry",
+    "upstream sentiment uses weak lexicon labels; external FinBERT evaluation is separate"
+  ]
+}

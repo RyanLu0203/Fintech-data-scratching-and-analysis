@@ -8,7 +8,7 @@ A group project for **Data Analysis and FinTech Fundamentals**.
 
 This project investigates whether financial news provides incremental information for DQN-based stock trading. We connect market and news data, peer-trained text signals, a custom trading environment and a Streamlit dashboard. The development process examines two practical challenges: uneven historical news coverage and hold-heavy trading behavior. The repository presents the system, its design iterations, experimental comparisons and the limits of the available evidence.
 
-**Evidence status:** offline tests and a synthetic two-fold pipeline check have been executed. Source-complete, 200-episode market experiments and an independent FinBERT benchmark remain pending. Preserved May 2026 diagnostic returns predate the accounting/state corrections and are excluded from new headline results. No profitable-trading or positive NLP-increment claim is made.
+**Evidence status:** real-data Full runs are complete for 002475 and 601138: 36 DQN agents, 200 episodes each, two folds and three seeds. NLP differences vary by stock, fold and seed; 11 agents execute no test trades. Chinese FinBERT inference is complete on external human labels: common-test macro F1 is 0.391, versus 0.605 for TF-IDF/LR. Historical disclosure timing is inferred conservatively and checkpoint training overlap is unknown. See the [real experiments](docs/real_experiments.md) and [FinBERT evaluation](docs/finbert_evaluation.md). Preserved May 2026 diagnostics are excluded from these results.
 
 ## Project at a glance
 
@@ -55,10 +55,14 @@ All strategy risk measures include initial cash. Zero-volatility Sharpe is N/A. 
 |---|---|
 | Original model-upgrade CSVs | historical diagnostics; require re-evaluation |
 | New two-fold Smoke run | verifies fitting, training, ledger and trace paths on synthetic fixtures |
-| Real-data Full comparisons | pending frozen source data; no new market conclusion |
-| Independent NLP / FinBERT benchmark | evaluation API repaired; manual labels and suitable checkpoint pending |
+| Real-data Full comparisons | two targets, all 36 agents; variable paired effects, no stable-gain claim |
+| External human-label NLP / FinBERT benchmark | shared 149-text test; pinned Chinese checkpoint; private training overlap unknown |
 
-The [current report addendum](reports/refinement_report.md) records changes and limits. The [original course report](reports/final_report.md) remains available with a revision notice. Negative, flat or unstable results should be included when formal comparisons are completed.
+The [real-data report](docs/real_experiments.md) includes every configured fold and seed, negative returns and flat policies. The [FinBERT report](docs/finbert_evaluation.md) records the exact benchmark, model and limitations. The [first refinement addendum](reports/refinement_report.md) and [original course report](reports/final_report.md) remain historical context.
+
+![All paired return differences](docs/assets/real-paired-returns.png)
+
+![Common-test NLP scores and FinBERT confusion counts](docs/assets/finbert-benchmark.png)
 
 ## Explore the dashboard
 
@@ -68,11 +72,11 @@ python -m streamlit run src/dashboard/streamlit_app.py
 
 ![Actual read-only dashboard overview](docs/assets/dashboard-overview.jpg)
 
-*Actual local reader, showing that formal data/results are still pending.*
+*Actual local reader with the completed 002475 Full result selected by default.*
 
 Follow **Overview → News to Decision → Experiments → Methods & Project**. Choose an explicit result version, inspect when one story became available, see its model scores and actual DQN state/action, then compare the matching fold. This is traceability, not a causal explanation of a trade; Q-value differences are not profit probabilities.
 
-The default reader opens frozen local outputs without training or network collection. If no formal run exists, it states which inputs are missing. Smoke versions must be selected explicitly and carry a synthetic-data warning. Advanced controls retain the original research workspace.
+The default reader opens the completed 002475 Full result. Select the 601138 Full version to inspect the other target. Opening it reads frozen local outputs without training or network collection. Smoke versions carry a synthetic-data warning. Advanced controls retain the original research workspace.
 
 ## Run it
 
@@ -86,7 +90,7 @@ python -m pytest -q
 python scripts/run_coursework.py --mode smoke
 ```
 
-Full requires four real input files and never substitutes generated data. See [reproduction](docs/reproduction.md) for actual commands, input requirements, FinBERT setup and failure handling. The [legacy guide](docs/legacy_repository_guide.md) preserves earlier grid/CLI details for historical tracing.
+The repository includes frozen real source files, models, ledgers and benchmark predictions. Run `python scripts/validate_saved_evidence.py` to recompute the saved evidence. See [reproduction](docs/reproduction.md) for full retraining, pinned FinBERT download/inference and source recollection commands. The [legacy guide](docs/legacy_repository_guide.md) preserves earlier grid/CLI details for historical tracing.
 
 ## Team and deliverables
 
@@ -94,4 +98,4 @@ The five workstreams are data, NLP, storage, RL and the dashboard, with analysis
 
 ## Limits and references
 
-Historical news coverage, weak labels, checkpoint language, previously viewed test periods and stochastic training limit interpretation. The daily ledger omits market microstructure and exchange trading restrictions. This is a course research platform, with no claim of live execution or stable profits. See [methodology](docs/methodology.md), [data provenance](docs/data.md), the [original course specification](docs/Project_Guidelines.docx), and the [FinBERT model card](https://huggingface.co/ProsusAI/finbert).
+Disclosure titles are not complete media coverage. Date-only availability, retrospective qfq adjustments, weak labels, private checkpoint training overlap, previously viewed test periods and stochastic training limit interpretation. The daily ledger omits market microstructure and exchange trading restrictions. This is a course research platform, with no claim of live execution or stable profits. See [methodology](docs/methodology.md), [data provenance](docs/data.md), the [original course specification](docs/Project_Guidelines.docx), and the [Chinese FinBERT model card](https://huggingface.co/yiyanghkust/finbert-tone-chinese).

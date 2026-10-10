@@ -1,0 +1,20 @@
+{
+  "dataset": "TongjiFinLab/CFBenchmark",
+  "revision": "3c825c2c9a63634736630e207c15cd27ab9633b6",
+  "original_arrow_sha256": "e001258501d5228ba71c83ba3525515d6946f22a6a8db7b4c3c9618eda70163f",
+  "csv_sha256": "10379acb41898119f7152019397cefb79ba74b4282973137e61c0501a77cf9be",
+  "raw_rows": 593,
+  "card_rows": 591,
+  "observed_rows": 593,
+  "unique_normalized_texts": 593,
+  "split_seed": 42,
+  "train_rows": 444,
+  "test_rows": 149,
+  "label_mapping": {
+    "\u6d88\u6781": -1,
+    "\u4e2d\u6027": 0,
+    "\u79ef\u6781": 1
+  },
+  "annotation_reference": "https://arxiv.org/abs/2311.05812 section 3.3",
+  "license": "Apache-2.0"
+}

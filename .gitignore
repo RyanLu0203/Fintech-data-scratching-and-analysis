@@ -55,3 +55,11 @@ reports/figures/
 reports/*.json
 reports/*.svg
 reports/*.csv
+!outputs/real/
+!outputs/real/**
+!outputs/real/**/*_dqn_model.pt
+!outputs/showcase/
+!outputs/showcase/**
+!outputs/nlp_evaluation/
+!outputs/nlp_evaluation/**
+!reports/real_evidence_validation.json
