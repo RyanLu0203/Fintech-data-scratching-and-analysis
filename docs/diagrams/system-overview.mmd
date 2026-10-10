@@ -1,0 +1,20 @@
+flowchart TB
+  PN[Peer news before cutoff] --> FIT[NLP fitting before RL]
+  PL[Mature peer return labels] --> FIT
+  FIT --> SM[Sentiment model]
+  FIT --> IM[Impact model]
+  TN[Target news] --> SCORE[Target text scoring]
+  SM --> SCORE
+  IM --> SCORE
+  SCORE --> SIG[Signals available before open]
+  MP[Target OHLCV] --> MF[Prior-close market features]
+  MF --> C[Market-only DQN]
+  MF --> N[DQN with one text signal]
+  SIG --> N
+  C --> E[Common ledger and evaluation]
+  N --> E
+  MP --> BH[Buy-and-Hold]
+  BH --> E
+  E --> UI[Dashboard and report]
+  DB[(SQLite / run artifacts)]
+  E -.-> DB
