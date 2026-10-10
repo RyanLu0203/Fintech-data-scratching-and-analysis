@@ -22,8 +22,9 @@ class FinancialTradingEnv:
 
     The state at row ``t`` is built from features shifted to information known
     by the end of ``t-1``. Actions are executed at day ``t`` using the row's
-    execution price, and the reward is the portfolio return from ``t`` to
-    ``t+1`` after transaction costs.
+    opening price. The ledger marks holdings at the same day's close. The
+    one-day reward is close-to-close NAV return, including fees and overnight
+    gains on the previous position. Initial NAV is cash before the first trade.
     """
 
     def __init__(
@@ -57,6 +58,12 @@ class FinancialTradingEnv:
         self.state_columns = state_columns or STATE_COLUMNS
         self.initial_cash = float(initial_cash)
         self.transaction_cost = float(transaction_cost)
+        if self.data.empty or self.data["date"].duplicated().any():
+            raise ValueError("Trading data must contain unique, non-empty sessions.")
+        if not np.isfinite(self.initial_cash) or self.initial_cash <= 0:
+            raise ValueError("initial_cash must be positive and finite")
+        if not np.isfinite(self.transaction_cost) or not 0 <= self.transaction_cost < 1:
+            raise ValueError("transaction_cost must be in [0, 1)")
         self.seed = seed
         self.reward_mode = reward_mode
         self.turnover_penalty = float(turnover_penalty)
@@ -88,13 +95,14 @@ class FinancialTradingEnv:
         self.cash = self.initial_cash
         self.shares = 0.0
         self.peak_value = self.initial_cash
+        self.previous_close_value = self.initial_cash
         self.consecutive_hold_days = 0
         self.consecutive_flat_days = 0
         self.logs: list[dict[str, float | str | int]] = []
         return self._state()
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
-        if self.index >= len(self.data) - 1:
+        if self.index >= len(self.data):
             raise IndexError("Environment is already done; call reset() before stepping again.")
 
         row = self.data.loc[self.index]
@@ -104,27 +112,34 @@ class FinancialTradingEnv:
         portfolio_before = float(cash_before + shares_before * trade_price)
         current_exposure_before = self._exposure_ratio(portfolio_before, shares_before, trade_price)
         raw_action_id = int(action)
+        action_count = len(TARGET_POSITION_ACTIONS) if self.action_mode == "target_position" else 3
+        if raw_action_id != action or not 0 <= raw_action_id < action_count:
+            raise ValueError("Action is outside the configured action space")
         target_exposure = self._target_exposure(raw_action_id, current_exposure_before)
         current_stock_value = float(shares_before * trade_price)
         target_stock_value = float(target_exposure * portfolio_before)
         trade_value = float(target_stock_value - current_stock_value)
         mapped_action_label = self._mapped_action_label(target_exposure, current_exposure_before, trade_value)
         transaction_cost_amount = self._execute_action(raw_action_id, trade_price, portfolio_before, current_exposure_before, target_exposure, trade_value, mapped_action_label)
+        executed_trade_value = abs(float(self.shares - shares_before)) * trade_price
+        executed_action = "Buy" if self.shares > shares_before else "Sell" if self.shares < shares_before else "Hold"
 
-        if mapped_action_label == "Hold":
+        if executed_action == "Hold":
             self.consecutive_hold_days += 1
         else:
             self.consecutive_hold_days = 0
 
         portfolio_after_trade = self.cash + self.shares * trade_price
-        portfolio_next = self._future_portfolio_value(1)
+        valuation_price = self._valuation_price(row)
+        portfolio_next = float(self.cash + self.shares * valuation_price)
         current_exposure_after = self._exposure_ratio(portfolio_after_trade, self.shares, trade_price)
         if current_exposure_after < self.flat_exposure_threshold:
             self.consecutive_flat_days += 1
         else:
             self.consecutive_flat_days = 0
-        base_reward = self._base_reward(portfolio_after_trade)
-        turnover = 0.0 if portfolio_after_trade == 0 else transaction_cost_amount / portfolio_after_trade
+        previous_close_value = self.previous_close_value
+        base_reward = self._base_reward(previous_close_value)
+        turnover = executed_trade_value / previous_close_value
         self.peak_value = max(self.peak_value, portfolio_next)
         drawdown = 0.0 if self.peak_value == 0 else max(0.0, (self.peak_value - portfolio_next) / self.peak_value)
         reward = self._reward(base_reward, turnover, drawdown)
@@ -133,7 +148,7 @@ class FinancialTradingEnv:
             flat_penalty_applied = self.flat_penalty
             reward -= flat_penalty_applied
         trade_exploration_bonus_applied = 0.0
-        if self._trade_bonus_active() and mapped_action_label in {"Buy", "Sell"}:
+        if self._trade_bonus_active() and executed_action in {"Buy", "Sell"}:
             trade_exploration_bonus_applied = self.trade_exploration_bonus
             reward += trade_exploration_bonus_applied
 
@@ -150,7 +165,11 @@ class FinancialTradingEnv:
                 "current_exposure_before": float(current_exposure_before),
                 "current_exposure_after": float(current_exposure_after),
                 "mapped_action_label": mapped_action_label,
-                "action": mapped_action_label,
+                "action": executed_action,
+                "executed_action": executed_action,
+                "executed_trade_value": executed_trade_value,
+                "previous_close_value": previous_close_value,
+                "valuation_price": valuation_price,
                 "cash": float(self.cash),
                 "shares": float(self.shares),
                 "position": float(self.shares),
@@ -168,7 +187,7 @@ class FinancialTradingEnv:
                 "reward": float(reward),
                 "portfolio_value": float(portfolio_next),
                 "portfolio_value_t": float(portfolio_after_trade),
-                "reward_timing_convention": "post_trade_to_future_value",
+                "reward_timing_convention": "previous_close_to_current_close_v2",
                 "transaction_cost": float(transaction_cost_amount),
                 "turnover": float(turnover),
                 "drawdown": float(drawdown),
@@ -186,8 +205,9 @@ class FinancialTradingEnv:
             }
         )
 
+        self.previous_close_value = portfolio_next
         self.index += 1
-        done = self.index >= len(self.data) - 1
+        done = self.index >= len(self.data)
         next_state = self._state()
         info = {
             "portfolio_before": float(portfolio_before),
@@ -195,7 +215,8 @@ class FinancialTradingEnv:
             "portfolio_next": float(portfolio_next),
             "portfolio_value_t": float(portfolio_after_trade),
             "portfolio_value_t1": float(portfolio_next),
-            "action": mapped_action_label,
+            "action": executed_action,
+            "executed_action": executed_action,
             "raw_action_id": raw_action_id,
             "action_mode": self.action_mode,
             "target_exposure": float(target_exposure),
@@ -325,7 +346,9 @@ class FinancialTradingEnv:
         raise ValueError(f"Unsupported reward_variant: {self.reward_variant}")
 
     def _future_portfolio_value(self, horizon_days: int) -> float:
-        target_index = min(self.index + max(int(horizon_days), 1), len(self.data) - 1)
+        # Multi-day variants remain counterfactual research targets; they are
+        # not n-step Bellman returns. The formal runner uses one_day_return.
+        target_index = min(self.index + max(int(horizon_days), 1) - 1, len(self.data) - 1)
         value_price = self._valuation_price(self.data.loc[target_index])
         return float(self.cash + self.shares * value_price)
 
@@ -345,7 +368,10 @@ class FinancialTradingEnv:
         row = self.data.loc[min(self.index, len(self.data) - 1)].copy()
         row["position"] = self.shares
         row["cash"] = self.cash
-        valuation_price = self._valuation_price(row)
+        if self.index > 0:
+            valuation_price = self._valuation_price(self.data.loc[min(self.index - 1, len(self.data) - 1)])
+        else:
+            valuation_price = float(row.get("price", self._execution_price(row)))
         portfolio_value = max(float(self.cash + self.shares * valuation_price), 1e-9)
         row["position_ratio"] = float((self.shares * valuation_price) / portfolio_value)
         row["cash_ratio"] = float(self.cash / portfolio_value)
@@ -354,13 +380,19 @@ class FinancialTradingEnv:
     def _execution_price(self, row: pd.Series) -> float:
         for column in ["execution_price", "open", "close", "price_raw", "price"]:
             if column in row and pd.notna(row[column]):
-                return float(row[column])
+                price = float(row[column])
+                if not np.isfinite(price) or price <= 0:
+                    raise ValueError("Execution price must be positive and finite")
+                return price
         raise ValueError("No valid execution price was found in the market row.")
 
     def _valuation_price(self, row: pd.Series) -> float:
         for column in ["valuation_price", "close", "execution_price", "price_raw", "price"]:
             if column in row and pd.notna(row[column]):
-                return float(row[column])
+                price = float(row[column])
+                if not np.isfinite(price) or price <= 0:
+                    raise ValueError("Valuation price must be positive and finite")
+                return price
         raise ValueError("No valid valuation price was found in the next market row.")
 
     def trading_log(self, episode: int = 0, experiment: str = "", seed: int | None = None) -> pd.DataFrame:

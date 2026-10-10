@@ -1,0 +1,12 @@
+flowchart TB
+  FIX[Shared data, folds, costs, network, budget and seeds]
+  FIX --> A[DQN market only: text zero]
+  FIX --> B[DQN sector sentiment]
+  FIX --> C[DQN sector impact]
+  MP[Same test market and ledger] --> BH[Buy-and-Hold: no DQN training]
+  A --> E[Return, Sharpe, MDD and executed trades]
+  B --> E
+  C --> E
+  BH --> E
+  E --> D[Paired NLP differences within stock / fold / seed]
+  D --> L[Findings with coverage and limitations]

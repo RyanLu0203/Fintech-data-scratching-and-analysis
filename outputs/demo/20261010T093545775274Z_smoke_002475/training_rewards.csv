@@ -1,0 +1,13 @@
+episode,total_reward,epsilon,experiment,seed,loss,reward_mode,reward_variant,model_variant,loss_type,grad_clip_norm,state_feature_mode,action_mode,random_action_count,greedy_action_count,buy_count,sell_count,hold_count,average_exposure,state_normalized,fold
+1,0.040804169969041154,0.3924189758484539,dqn_without_nlp,42,0.0011504071298986673,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,3,3,14,0.19999864673007622,True,1
+2,0.199867488109423,0.1,dqn_without_nlp,42,0.000495223212055862,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.3499964423886622,True,1
+1,0.040804169969041154,0.3924189758484539,dqn_with_sector_sentiment_nlp,42,0.0018721226369962096,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,3,3,14,0.19999864673007622,True,1
+2,0.20176874760478344,0.1,dqn_with_sector_sentiment_nlp,42,0.00036345585249364376,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.2499972763798473,True,1
+1,0.040804169969041154,0.3924189758484539,dqn_with_sector_impact_nlp,42,0.0017847854178398848,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,3,3,14,0.19999864673007622,True,1
+2,0.1663638509815722,0.1,dqn_with_sector_impact_nlp,42,0.0005156296538189054,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.3999942801096966,True,1
+1,-0.038999409992966264,0.3924189758484539,dqn_without_nlp,42,0.000928546127397567,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,3,3,14,0.24999668948282688,True,2
+2,0.2062100239504836,0.1,dqn_without_nlp,42,0.00041949801379814744,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.19999815683838568,True,2
+1,-0.038999409992966264,0.3924189758484539,dqn_with_sector_sentiment_nlp,42,0.0010701861465349793,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,3,3,14,0.24999668948282688,True,2
+2,0.2062100239504836,0.1,dqn_with_sector_sentiment_nlp,42,0.00040445616468787193,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.19999815683838568,True,2
+1,-0.027933584201558923,0.3924189758484539,dqn_with_sector_impact_nlp,42,0.000847879215143621,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,16,4,2,2,16,0.29999619367328295,True,2
+2,0.0775326503454895,0.1,dqn_with_sector_impact_nlp,42,0.0007968572899699211,portfolio_return,one_day_return,vanilla_dqn,huber,1.0,official_8d,discrete_trade,4,16,2,2,16,0.39999478478966155,True,2
